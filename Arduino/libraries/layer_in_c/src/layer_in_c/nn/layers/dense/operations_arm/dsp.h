@@ -14,10 +14,10 @@ namespace layer_in_c{
         static_assert(INPUT_SPEC::COL_PITCH == 1);
         static_assert(OUTPUT_SPEC::ROW_PITCH == OUTPUT_SPEC::COLS);
         static_assert(OUTPUT_SPEC::COL_PITCH == 1);
-        static_assert(decltype(layer.weights)::ROW_PITCH == INPUT_SPEC::COLS);
-        static_assert(decltype(layer.weights)::COL_PITCH == 1);
-        static_assert(decltype(layer.biases)::COL_PITCH == 1);
-        static_assert(decltype(layer.biases)::ROW_PITCH == decltype(layer.biases)::COLS);
+        static_assert(decltype(layer.weights.parameters)::ROW_PITCH == INPUT_SPEC::COLS);
+        static_assert(decltype(layer.weights.parameters)::COL_PITCH == 1);
+        static_assert(decltype(layer.biases.parameters)::COL_PITCH == 1);
+        static_assert(decltype(layer.biases.parameters)::ROW_PITCH == decltype(layer.biases.parameters)::COLS);
         static_assert(utils::typing::is_same_v<typename LAYER_SPEC::T, float>);
 
         // Warning do not use the same buffer for input and output!
@@ -30,7 +30,7 @@ namespace layer_in_c{
         arm_matrix_instance_f32 arm_weights = {
                 .numRows = LAYER_SPEC::OUTPUT_DIM,
                 .numCols = LAYER_SPEC::INPUT_DIM,
-                .pData = layer.weights._data
+                .pData = layer.weights.parameters._data
         };
 
         arm_matrix_instance_f32 arm_input = {
@@ -45,7 +45,7 @@ namespace layer_in_c{
         } ;
         arm_mat_mult_f32(&arm_weights, &arm_input, &arm_output);
         // beware this only works for batch size = 1
-        arm_add_f32(output._data, layer.biases._data, output._data, LAYER_SPEC::OUTPUT_DIM);
+        arm_add_f32(output._data, layer.biases.parameters._data, output._data, LAYER_SPEC::OUTPUT_DIM);
 
 
         for(TI i = 0; i < BATCH_SIZE; i++){

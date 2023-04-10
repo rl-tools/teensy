@@ -109,7 +109,8 @@ void setup() {
 void loop() {
 #ifdef TRAIN
 #else
-  using DEVICE = lic::devices::DefaultARM;
+  using DEV_SPEC = lic::devices::DefaultARMSpecification; 
+  using DEVICE = lic::devices::arm::Generic<DEV_SPEC>;
   main_evaluate_correctness<DEVICE>();
   main_evaluate_benchmark<DEVICE>();
 #endif

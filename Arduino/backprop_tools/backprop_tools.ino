@@ -14,18 +14,18 @@ void setup() {
 }
 
 void loop() {
-  {
-    unsigned long start = millis();
-    int current_interval = 0;
-    int interval = 10000;
-    while(true){
-      unsigned long current = millis();
-      if(current_interval * interval < current - start){
-        current_interval++;
-        Serial.printf("Elapsed: %lums\n", current - start);
-      }
-    }
-  }
+  // {
+  //   unsigned long start = millis();
+  //   int current_interval = 0;
+  //   int interval = 10000;
+  //   while(true){
+  //     unsigned long current = millis();
+  //     if(current_interval * interval < current - start){
+  //       current_interval++;
+  //       Serial.printf("Elapsed: %lums\n", current - start);
+  //     }
+  //   }
+  // }
   Serial.print("pre train\n");
   unsigned long start = millis();
   train();

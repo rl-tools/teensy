@@ -110,8 +110,8 @@ void loop() {
 #ifdef TRAIN
 #else
   using DEV_SPEC = lic::devices::DefaultARMSpecification; 
-  using DEVICE = lic::devices::arm::DSP<DEV_SPEC>;
-  // main_evaluate_correctness<DEVICE>();
+  using DEVICE = lic::devices::arm::OPT<DEV_SPEC>;
+  main_evaluate_correctness<DEVICE>();
   main_evaluate_benchmark<DEVICE>();
 #endif
 }

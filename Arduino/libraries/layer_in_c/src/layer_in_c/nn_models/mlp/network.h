@@ -139,11 +139,9 @@ namespace layer_in_c::nn_models::mlp {
         using SPEC = T_SPEC;
         using T = typename SPEC::T;
         using TI = typename SPEC::TI;
-//        template<TI BUFFER_BATCH_SIZE = SPEC::BATCH_SIZE, typename T_CONTAINER_TYPE_TAG = typename T_SPEC::CONTAINER_TYPE_TAG>
-        template<TI BUFFER_BATCH_SIZE, typename T_CONTAINER_TYPE_TAG>
+        template<TI BUFFER_BATCH_SIZE = SPEC::BATCH_SIZE, typename T_CONTAINER_TYPE_TAG = typename T_SPEC::CONTAINER_TYPE_TAG>
         using Buffers = NeuralNetworkBuffers<NeuralNetworkBuffersSpecification<SPEC, BUFFER_BATCH_SIZE, T_CONTAINER_TYPE_TAG>>;
-//        template<TI BUFFER_BATCH_SIZE = SPEC::BATCH_SIZE, typename T_CONTAINER_TYPE_TAG = typename T_SPEC::CONTAINER_TYPE_TAG>
-        template<TI BUFFER_BATCH_SIZE, typename T_CONTAINER_TYPE_TAG>
+        template<TI BUFFER_BATCH_SIZE = SPEC::BATCH_SIZE, typename T_CONTAINER_TYPE_TAG = typename T_SPEC::CONTAINER_TYPE_TAG>
         using BuffersForwardBackward = NeuralNetworkBuffersForwardBackward<NeuralNetworkBuffersSpecification<SPEC, BUFFER_BATCH_SIZE, T_CONTAINER_TYPE_TAG>>;
 
         // Convenience

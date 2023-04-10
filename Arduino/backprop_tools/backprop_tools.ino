@@ -1,12 +1,20 @@
 #undef abs
 #undef PI
 #include <layer_in_c.h>
+#ifdef TRAIN
 #define LAYER_IN_C_DEPLOYMENT_ARDUINO
 #include </home/jonas/phd/projects/rl_for_control/layer-in-c/tests/src/rl/algorithms/td3/arm/full_training.cpp>
+#else
+#include <layer_in_c/operations/arm.h>
+#include <layer_in_c/nn/layers/dense/operations_arm/dsp.h>
+#include <layer_in_c/nn/layers/dense/operations_arm/opt.h>
+#include <layer_in_c/nn_models/mlp/operations_generic.h>
 #include <data/test_layer_in_c_nn_models_mlp_evaluation.h>
 #include <data/test_layer_in_c_nn_models_mlp_persist_code.h>
+namespace lic = layer_in_c;
+#endif
 
-
+#ifdef TRAIN
 void main_train(){
   Serial.print("pre train\n");
   unsigned long start = millis();
@@ -17,6 +25,7 @@ void main_train(){
     Serial.printf("Evaluation[%d]: %f \n", i, evaluation_returns[i]);
   }
 }
+#else
 void main_test_timing(){
   unsigned long start = millis();
   int current_interval = 0;
@@ -30,8 +39,9 @@ void main_test_timing(){
   }
 }
 
+template <typename DEVICE>
 void main_evaluate_correctness(){
-  using DEVICE = lic::devices::DefaultARM;
+
   DEVICE device;
   using T = float;
   using TI = typename DEVICE::index_t;
@@ -56,8 +66,8 @@ void main_evaluate_correctness(){
 
 }
 
+template <typename DEVICE>
 void main_evaluate_benchmark(){
-  using DEVICE = lic::devices::DefaultARM;
   DEVICE device;
   int num_runs = 10000;
   decltype(mlp_1::mlp)::template Buffers<1, lic::MatrixDynamicTag> buffers;
@@ -83,11 +93,10 @@ void main_evaluate_benchmark(){
       }
   }
 
-  
-  
   lic::free(device, buffers);
   lic::free(device, output);
 }
+#endif
 
 
 void setup() {
@@ -98,6 +107,10 @@ void setup() {
 }
 
 void loop() {
-  main_evaluate_correctness();
-  main_evaluate_benchmark();
+#ifdef TRAIN
+#else
+  using DEVICE = lic::devices::DefaultARM;
+  main_evaluate_correctness<DEVICE>();
+  main_evaluate_benchmark<DEVICE>();
+#endif
 }

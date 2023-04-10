@@ -11,6 +11,7 @@
 #include <sstream>
 #endif
 
+
 namespace layer_in_c{
     template<typename DEVICE, typename SPEC>
     void malloc(DEVICE& device, MatrixStatic<SPEC>& matrix){
@@ -18,6 +19,13 @@ namespace layer_in_c{
         utils::assert_exit(device, matrix._data == nullptr, "Matrix is already allocated");
 #endif
         matrix._data = (typename SPEC::T*)&matrix._data_memory[0];
+#ifdef LAYER_IN_C_DEBUG_CONTAINER_MALLOC_INIT_NAN
+        for(typename SPEC::TI i = 0; i < SPEC::SIZE; i++){
+            if constexpr(std::is_convertible<typename SPEC::T, float>::value){
+                matrix._data[i] = 0.0/0.0;
+            }
+        }
+#endif
     }
     template<typename DEVICE, typename SPEC>
     void free(DEVICE& device, MatrixStatic<SPEC>& matrix){
@@ -31,6 +39,8 @@ namespace layer_in_c{
         utils::assert_exit(device, matrix._data == nullptr, "Matrix is already allocated");
 #endif
         matrix._data = (typename SPEC::T*)new char[SPEC::SIZE_BYTES];
+        count_malloc(device, SPEC::SIZE_BYTES);
+
 #ifdef LAYER_IN_C_DEBUG_CONTAINER_MALLOC_INIT_NAN
         for(typename SPEC::TI i = 0; i < SPEC::SIZE; i++){
             if constexpr(std::is_convertible<typename SPEC::T, float>::value){
@@ -128,7 +138,6 @@ namespace layer_in_c{
     template<typename DEVICE, typename SPEC>
     auto view_transpose(DEVICE& device, Matrix<SPEC>& target){
 //        static_assert(SPEC::ROWS == SPEC::COLS);
-        using T = typename SPEC::T;
         using TI = typename SPEC::TI;
 //        for(TI i = 0; i < SPEC::ROWS; i++){
 //            for(TI j = i + 1; j < SPEC::COLS; j++){
@@ -284,7 +293,6 @@ namespace layer_in_c{
         static_assert(SPEC_A::COLS + SPEC_B::COLS == SPEC_C::COLS);
         // concatenate horizontally
         using TI = typename SPEC_A::TI;
-        using T = typename SPEC_A::T;
         for(TI i = 0; i < SPEC_A::ROWS; i++){
             for(TI j = 0; j < SPEC_A::COLS; j++){
                 set(C, i, j, get(A, i, j));
@@ -302,7 +310,6 @@ namespace layer_in_c{
         static_assert(SPEC_A::ROWS + SPEC_B::ROWS == SPEC_C::ROWS);
         // concatenate horizontally
         using TI = typename SPEC_A::TI;
-        using T = typename SPEC_A::T;
         for(TI i = 0; i < SPEC_A::ROWS; i++){
             for(TI j = 0; j < SPEC_A::COLS; j++){
                 set(C, i, j, get(A, i, j));
@@ -319,7 +326,6 @@ namespace layer_in_c{
 //        static_assert(SPEC_1::ROWS <= SPEC_2::ROWS);
 //        static_assert(SPEC_1::COLS <= SPEC_2::COLS);
         using TI = typename SPEC_1::TI;
-        using T = typename SPEC_1::T;
         if constexpr(BOUNDS_CHECKING){
             utils::assert_exit(device, row + rows <= SPEC_2::ROWS, "row + rows <= SPEC_2::ROWS");
             utils::assert_exit(device, col + cols <= SPEC_2::COLS, "col + cols <= SPEC_2::COLS");
@@ -487,7 +493,6 @@ namespace layer_in_c{
     template<typename DEVICE, typename SPEC_A, typename SPEC_B>
     void swap(DEVICE& device, Matrix<SPEC_A>& a, Matrix<SPEC_B>& b, typename DEVICE::index_t row_a, typename DEVICE::index_t col_a, typename DEVICE::index_t row_b, typename DEVICE::index_t col_b){
         using T = typename SPEC_A::T;
-        using TI = typename DEVICE::index_t;
         static_assert(containers::check_structure<SPEC_A, SPEC_B>);
         T tmp = get(a, row_a, col_a);
         set(a, row_a, col_a, get(b, row_b, col_b));

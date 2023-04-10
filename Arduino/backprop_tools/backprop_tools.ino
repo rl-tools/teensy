@@ -14,6 +14,14 @@ void setup() {
 }
 
 void loop() {
+  {
+    unsigned long start = millis();
+    int current_interval = 0;
+    int 
+    while(true){
+      unsigned long current = millis();
+    }
+  }
   Serial.print("pre train\n");
   unsigned long start = millis();
   train();

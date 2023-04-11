@@ -21,6 +21,7 @@ namespace layer_in_c{
         // static_assert(BATCH_SIZE == 1);
         using DEVICE = devices::ARM<DEV_SPEC>;
         using T = typename LAYER_SPEC::T;
+        using TI = typename LAYER_SPEC::TI;
         {
 
             T *weights_row;
@@ -30,7 +31,7 @@ namespace layer_in_c{
             T *weights_element, *biases_element, *input_element, *output_element;
 
             T acc;
-            uint32_t weights_row_i, batch_i = BATCH_SIZE, input_i;
+            TI weights_row_i, batch_i = BATCH_SIZE, input_i;
 
             {
                 do{
@@ -46,7 +47,7 @@ namespace layer_in_c{
                         weights_element = weights_row;
 
                         // reduction
-                        input_i = ((uint32_t)LAYER_SPEC::INPUT_DIM) >> 2U;
+                        input_i = ((TI)LAYER_SPEC::INPUT_DIM) >> 2U;
                         while (input_i > 0U){
                             acc += *weights_element++ * *input_element++;
                             acc += *weights_element++ * *input_element++;
@@ -55,7 +56,7 @@ namespace layer_in_c{
 
                             input_i--;
                         }
-                        input_i = ((uint32_t)LAYER_SPEC::INPUT_DIM) % 0x4U;
+                        input_i = ((TI)LAYER_SPEC::INPUT_DIM) % 0x4U;
                         while (input_i > 0U){
                             acc += *weights_element++ * *input_element++;
                             input_i--;

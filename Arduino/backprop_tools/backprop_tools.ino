@@ -111,7 +111,7 @@ void loop() {
 #else
   using DEV_SPEC = lic::devices::DefaultARMSpecification; 
   using DEVICE = lic::devices::arm::OPT<DEV_SPEC>;
-  main_evaluate_correctness<DEVICE>();
+  main_evaluate_correctness<DEVICE>(); // disable this for "DSP" because it only supports BATCH_SIZE=1
   main_evaluate_benchmark<DEVICE>();
 #endif
 }

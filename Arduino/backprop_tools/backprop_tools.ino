@@ -1,6 +1,7 @@
 #undef abs
 #undef PI
 #include <layer_in_c.h>
+#define TRAIN
 #ifdef TRAIN
 #define LAYER_IN_C_DEPLOYMENT_ARDUINO
 #include </home/jonas/phd/projects/rl_for_control/layer-in-c/tests/src/rl/algorithms/td3/arm/full_training.cpp>
@@ -108,6 +109,7 @@ void setup() {
 
 void loop() {
 #ifdef TRAIN
+  main_train();
 #else
   using DEV_SPEC = lic::devices::DefaultARMSpecification; 
   using DEVICE = lic::devices::arm::OPT<DEV_SPEC>;

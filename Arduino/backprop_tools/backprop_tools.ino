@@ -1,9 +1,10 @@
 #undef abs
 #undef PI
 #include <layer_in_c.h>
-#define TRAIN
+// #define TRAIN
 #ifdef TRAIN
 #define LAYER_IN_C_DEPLOYMENT_ARDUINO
+#define LAYER_IN_C_DISABLE_EVALUATION
 #include </home/jonas/phd/projects/rl_for_control/layer-in-c/tests/src/rl/algorithms/td3/arm/full_training.cpp>
 #else
 #include <layer_in_c/operations/arm.h>
@@ -22,9 +23,11 @@ void main_train(){
   train();
   auto end = millis();
   Serial.printf("post train, took: %lu\n", end - start);
+#ifndef LAYER_IN_C_DISABLE_EVALUATION
   for(int i = 0; i < N_EVALUATIONS; i++){
     Serial.printf("Evaluation[%d]: %f \n", i, evaluation_returns[i]);
   }
+#endif
 }
 #else
 void main_test_timing(){
@@ -115,5 +118,6 @@ void loop() {
   using DEVICE = lic::devices::arm::OPT<DEV_SPEC>;
   main_evaluate_correctness<DEVICE>(); // disable this for "DSP" because it only supports BATCH_SIZE=1
   main_evaluate_benchmark<DEVICE>();
+
 #endif
 }

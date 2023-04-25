@@ -1,19 +1,19 @@
 #undef abs
 #undef PI
-#include <layer_in_c.h>
-// #define TRAIN
+#include <backprop_tools.h>
+#define TRAIN
 #ifdef TRAIN
-#define LAYER_IN_C_DEPLOYMENT_ARDUINO
-#define LAYER_IN_C_DISABLE_EVALUATION
-#include </home/jonas/phd/projects/rl_for_control/layer-in-c/tests/src/rl/algorithms/td3/arm/full_training.cpp>
+#define BACKPROP_TOOLS_DEPLOYMENT_ARDUINO
+// #define BACKPROP_TOOLS_DISABLE_EVALUATION
+#include </home/jonas/phd/projects/rl_for_control/backprop_tools/src/rl/environments/pendulum/td3/arm/training.h>
 #else
-#include <layer_in_c/operations/arm.h>
-#include <layer_in_c/nn/layers/dense/operations_arm/dsp.h>
-#include <layer_in_c/nn/layers/dense/operations_arm/opt.h>
-#include <layer_in_c/nn_models/mlp/operations_generic.h>
-#include <data/test_layer_in_c_nn_models_mlp_evaluation.h>
-#include <data/test_layer_in_c_nn_models_mlp_persist_code.h>
-namespace lic = layer_in_c;
+#include <backprop_tools/operations/arm.h>
+#include <backprop_tools/nn/layers/dense/operations_arm/dsp.h>
+#include <backprop_tools/nn/layers/dense/operations_arm/opt.h>
+#include <backprop_tools/nn_models/mlp/operations_generic.h>
+#include <data/test_backprop_tools_nn_models_mlp_evaluation.h>
+#include <data/test_backprop_tools_nn_models_mlp_persist_code.h>
+namespace lic = backprop_tools;
 #endif
 
 #ifdef TRAIN
@@ -23,7 +23,7 @@ void main_train(){
   train();
   auto end = millis();
   Serial.printf("post train, took: %lu\n", end - start);
-#ifndef LAYER_IN_C_DISABLE_EVALUATION
+#ifndef BACKPROP_TOOLS_DISABLE_EVALUATION
   for(int i = 0; i < N_EVALUATIONS; i++){
     Serial.printf("Evaluation[%d]: %f \n", i, evaluation_returns[i]);
   }

@@ -4,7 +4,7 @@
 #define TRAIN
 #ifdef TRAIN
 #define BACKPROP_TOOLS_DEPLOYMENT_ARDUINO
-// #define BACKPROP_TOOLS_DISABLE_EVALUATION
+#define BACKPROP_TOOLS_DISABLE_EVALUATION
 #include </home/jonas/phd/projects/rl_for_control/backprop_tools/src/rl/environments/pendulum/td3/arm/training.h>
 #else
 #include <backprop_tools/operations/arm.h>

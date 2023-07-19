@@ -13,6 +13,7 @@ namespace backprop_tools::devices{
             using MATH = T_MATH;
             using RANDOM = T_RANDOM;
             using LOGGING = T_LOGGING;
+            using index_t = size_t;
         };
         struct Base{
             static constexpr DeviceId DEVICE_ID = DeviceId::CPU;
@@ -36,14 +37,6 @@ namespace backprop_tools::devices{
     }
     template <typename T_SPEC>
     struct CPU: Device<T_SPEC>, cpu::Base{
-        template <typename OTHER_DEVICE>
-        static constexpr bool compatible =
-            OTHER_DEVICE::DEVICE == DeviceId::Dummy ||
-            OTHER_DEVICE::DEVICE == DeviceId::CPU ||
-            OTHER_DEVICE::DEVICE == DeviceId::CPU_BLAS ||
-            OTHER_DEVICE::DEVICE == DeviceId::CPU_MKL ||
-            OTHER_DEVICE::DEVICE == DeviceId::CPU_ACCELERATE ||
-            OTHER_DEVICE::DEVICE == DeviceId::CPU_TENSORBOARD;
         using SPEC = T_SPEC;
         using EXECUTION_HINTS = typename SPEC::EXECUTION_HINTS;
         typename SPEC::LOGGING* logger = nullptr;

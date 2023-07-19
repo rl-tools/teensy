@@ -29,11 +29,6 @@ namespace backprop_tools::rl::utils::evaluation{
 
 namespace backprop_tools {
 
-    template <typename DEVICE, typename UI, typename STATE>
-    void set_state(DEVICE& dev, UI& ui, const STATE& state){
-        // dummy implementation for the case where no ui should be used
-    }
-
     template<typename DEVICE, typename ENVIRONMENT, typename UI, typename POLICY, typename EVAL_STATE, typename OBSERVATION_MEAN_SPEC, typename OBSERVATION_STD_SPEC, typename RNG>
     bool evaluate_step(DEVICE& device, ENVIRONMENT& env, UI& ui, const POLICY& policy, EVAL_STATE& eval_state, Matrix<OBSERVATION_MEAN_SPEC>& observation_mean, Matrix<OBSERVATION_STD_SPEC>& observation_std, RNG& rng) {
         using T = typename POLICY::T;
@@ -59,7 +54,9 @@ namespace backprop_tools {
         }
         typename ENVIRONMENT::State next_state;
         T dt = step(device, env, state, action, next_state);
-        set_state(device, ui, state);
+        set_state(device, env, ui, state);
+        set_action(device, env, ui, action);
+        render(device, env, ui);
         T r = reward(device, env, state, action, next_state);
         state = next_state;
         eval_state.episode_return += r;

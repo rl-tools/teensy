@@ -47,11 +47,11 @@ namespace backprop_tools {
     }
     template<typename DEVICE, typename SPEC, typename RNG>
     void init_weights(DEVICE& device, nn_models::mlp::NeuralNetwork<SPEC>& network, RNG& rng) {
-        init_kaiming(device, network.input_layer, rng);
+        init_weights(device, network.input_layer, rng);
         for (typename DEVICE::index_t layer_i = 0; layer_i < SPEC::NUM_HIDDEN_LAYERS; layer_i++){
-            init_kaiming(device, network.hidden_layers[layer_i], rng);
+            init_weights(device, network.hidden_layers[layer_i], rng);
         }
-        init_kaiming(device, network.output_layer, rng);
+        init_weights(device, network.output_layer, rng);
     }
 
     // evaluate does not set intermediate outputs and hence can also be called from stateless layers, for register efficiency use forward when working with "Backward" compatible layers
@@ -169,19 +169,19 @@ namespace backprop_tools {
         static_assert(TEMP_SPEC::ROWS == BATCH_SIZE);
         static_assert(TEMP_SPEC::COLS == MODEL_SPEC::HIDDEN_DIM);
 
-        backward(network.output_layer, d_output, d_layer_input_tick);
+        backward(device, network.output_layer, d_output, d_layer_input_tick);
         for (typename DEVICE::index_t layer_i_plus_one = MODEL_SPEC::NUM_HIDDEN_LAYERS; layer_i_plus_one > 0; layer_i_plus_one--){
             typename DEVICE::index_t layer_i = layer_i_plus_one - 1;
             if(layer_i % 2 == (MODEL_SPEC::NUM_HIDDEN_LAYERS - 1) % 2){ // we are starting with the last hidden layer where the result should go to tock
-                backward(network.hidden_layers[layer_i], d_layer_input_tick, d_layer_input_tock);
+                backward(device, network.hidden_layers[layer_i], d_layer_input_tick, d_layer_input_tock);
             } else {
-                backward(network.hidden_layers[layer_i], d_layer_input_tock, d_layer_input_tick);
+                backward(device, network.hidden_layers[layer_i], d_layer_input_tock, d_layer_input_tick);
             }
         }
         if constexpr(MODEL_SPEC::NUM_HIDDEN_LAYERS % 2 == 0){
-            backward(network.input_layer, d_layer_input_tick, d_input);
+            backward(device, network.input_layer, d_layer_input_tick, d_input);
         } else {
-            backward(network.input_layer, d_layer_input_tock, d_input);
+            backward(device, network.input_layer, d_layer_input_tock, d_input);
         }
     }
     template<typename DEVICE, typename MODEL_SPEC, typename D_OUTPUT_SPEC, typename D_INPUT_SPEC, typename BUFFER_MODEL_SPEC>
@@ -226,46 +226,32 @@ namespace backprop_tools {
         static_assert(BUFFER_MODEL_SPEC::BATCH_SIZE == INPUT_SPEC::ROWS);
         static_assert(nn_models::mlp::check_input_output<MODEL_SPEC, INPUT_SPEC, TARGET_SPEC>);
         forward(device, network, input);
-        nn::loss_functions::d_mse_d_x(device, network.output_layer.output, target, buffers.d_output, loss_weight);
+        nn::loss_functions::mse::gradient(device, network.output_layer.output, target, buffers.d_output, loss_weight);
         backward(device, network, input, buffers.d_output, buffers.d_input, buffers);
     }
 
-    template<typename DEVICE, typename SPEC, typename OPTIMIZER>
-    void update(DEVICE& device, nn_models::mlp::NeuralNetworkSGD<SPEC>& network, OPTIMIZER& optimizer) {
-        update_layer(device, network.input_layer, optimizer);
-        for (typename DEVICE::index_t layer_i = 0; layer_i < SPEC::NUM_HIDDEN_LAYERS; layer_i++){
-            update_layer(device, network.hidden_layers[layer_i], optimizer);
-        }
-        update_layer(device, network.output_layer, optimizer);
-    }
-
-
     template<typename DEVICE, typename SPEC, typename ADAM_PARAMETERS>
-    void update(DEVICE& device, nn_models::mlp::NeuralNetworkAdam<SPEC>& network, nn::optimizers::Adam<ADAM_PARAMETERS>& optimizer) {
+    void update(DEVICE& device, nn_models::mlp::NeuralNetworkBackwardGradient<SPEC>& network, nn::optimizers::Adam<ADAM_PARAMETERS>& optimizer) {
         using T = typename SPEC::T;
-        optimizer.first_order_moment_bias_correction  = 1/(1 - math::pow(typename DEVICE::SPEC::MATH(), ADAM_PARAMETERS::BETA_1, (T)network.age));
-        optimizer.second_order_moment_bias_correction = 1/(1 - math::pow(typename DEVICE::SPEC::MATH(), ADAM_PARAMETERS::BETA_2, (T)network.age));
-
         update(device, network.input_layer, optimizer);
         for(typename DEVICE::index_t layer_i = 0; layer_i < SPEC::NUM_HIDDEN_LAYERS; layer_i++){
             update(device, network.hidden_layers[layer_i], optimizer);
         }
         update(device, network.output_layer, optimizer);
-        network.age += 1;
     }
 
     template<typename DEVICE, typename SPEC>
-    void reset_optimizer_state(DEVICE& device, nn_models::mlp::NeuralNetworkSGD<SPEC>& network) {
+    void _reset_optimizer_state(DEVICE& device, nn_models::mlp::NeuralNetworkSGD<SPEC>& network) {
     }
 
     template<typename DEVICE, typename SPEC, typename OPTIMIZER>
-    void reset_optimizer_state(DEVICE& device, nn_models::mlp::NeuralNetworkAdam<SPEC>& network, OPTIMIZER& optimizer) {
-        reset_optimizer_state(device, network.input_layer, optimizer);
+    void _reset_optimizer_state(DEVICE& device, nn_models::mlp::NeuralNetworkBackwardGradient<SPEC>& network, OPTIMIZER& optimizer) {
+        // this function is marked with a underscore because it should usually be called from the reset_optimizer_state function of the optimizer to have one coherent entrypoint for resetting the optimizer state in the optimizer and in the model
+        _reset_optimizer_state(device, network.input_layer, optimizer);
         for(typename DEVICE::index_t layer_i = 0; layer_i < SPEC::NUM_HIDDEN_LAYERS; layer_i++){
-            reset_optimizer_state(device, network.hidden_layers[layer_i], optimizer);
+            _reset_optimizer_state(device, network.hidden_layers[layer_i], optimizer);
         }
-        reset_optimizer_state(device, network.output_layer, optimizer);
-        network.age = 1;
+        _reset_optimizer_state(device, network.output_layer, optimizer);
     }
 
     // The following copy operators are more powerful than the default copy assignment operator in that they can e.g. copy between networks with different activation functions
@@ -283,7 +269,6 @@ namespace backprop_tools {
     void copy(TARGET_DEVICE& target_device, SOURCE_DEVICE& source_device, nn_models::mlp::NeuralNetworkAdam<TARGET_SPEC>& target, const nn_models::mlp::NeuralNetworkAdam<SOURCE_SPEC>& source){
         static_assert(backprop_tools::nn_models::mlp::check_spec_memory<typename TARGET_SPEC::STRUCTURE_SPEC, typename SOURCE_SPEC::STRUCTURE_SPEC>, "The target and source network must have the same structure");
         copy(target_device, source_device, (nn_models::mlp::NeuralNetwork<TARGET_SPEC>&)target, (nn_models::mlp::NeuralNetwork<SOURCE_SPEC>&)source);
-        target.age = source.age;
     }
 
     template<typename DEVICE, typename SPEC>

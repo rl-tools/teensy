@@ -38,10 +38,10 @@ namespace backprop_tools{
         ppo.initialized = true;
 #endif
         init_weights(device, ppo.actor, rng);
-        reset_optimizer_state(device, ppo.actor, actor_optimizer);
+        reset_optimizer_state(device, actor_optimizer, ppo.actor);
         set_all(device, ppo.actor.log_std.parameters, math::log(typename DEVICE::SPEC::MATH(), SPEC::PARAMETERS::INITIAL_ACTION_STD));
         init_weights(device, ppo.critic, rng);
-        reset_optimizer_state(device, ppo.critic, critic_optimizer);
+        reset_optimizer_state(device, critic_optimizer, ppo.critic);
 //        set_all(device, ppo.actor.input_layer.biases.parameters, 0);
 //        set_all(device, ppo.actor.hidden_layers[0].biases.parameters, 0);
 //        set_all(device, ppo.actor.output_layer.biases.parameters, 0);
@@ -241,10 +241,10 @@ namespace backprop_tools{
                 }
                 backward(device, ppo.actor, batch_observations, ppo_buffers.d_action_log_prob_d_action, ppo_buffers.d_batch_observations, actor_buffers);
                 forward_backward_mse(device, ppo.critic, batch_observations, batch_target_values, critic_buffers);
-                T critic_loss = nn::loss_functions::mse(device, ppo.critic.output_layer.output, batch_target_values);
+                T critic_loss = nn::loss_functions::mse::evaluate(device, ppo.critic.output_layer.output, batch_target_values);
                 add_scalar(device, device.logger, "ppo/critic_loss", critic_loss);
-                update(device, ppo.actor, actor_optimizer);
-                update(device, ppo.critic, actor_optimizer); // todo: evaluate switch to critic_optimizer
+                step(device, actor_optimizer, ppo.actor);
+                step(device, actor_optimizer, ppo.critic); // todo: evaluate switch to critic_optimizer
             }
         }
         if(PPO_SPEC::PARAMETERS::ADAPTIVE_LEARNING_RATE) {

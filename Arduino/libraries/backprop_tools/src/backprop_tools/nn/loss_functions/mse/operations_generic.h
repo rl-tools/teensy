@@ -1,9 +1,9 @@
 #ifndef BACKPROP_TOOLS_NN_LOSS_FUNCTIONS_MSE_OPERATIONS_GENERIC
 #define BACKPROP_TOOLS_NN_LOSS_FUNCTIONS_MSE_OPERATIONS_GENERIC
 
-namespace backprop_tools::nn::loss_functions {
+namespace backprop_tools::nn::loss_functions::mse{
     template<typename DEVICE, typename SPEC_A, typename SPEC_B>
-    typename SPEC_A::T mse(DEVICE& device, Matrix<SPEC_A> a, Matrix<SPEC_B> b, typename SPEC_A::T loss_weight = 1) {
+    typename SPEC_A::T evaluate(DEVICE& device, Matrix<SPEC_A> a, Matrix<SPEC_B> b, typename SPEC_A::T loss_weight = 1) {
         static_assert(containers::check_structure<SPEC_A, SPEC_B>);
         using T = typename SPEC_A::T;
         using TI = typename SPEC_A::TI;
@@ -17,9 +17,8 @@ namespace backprop_tools::nn::loss_functions {
         }
         return acc * loss_weight / (SPEC_A::ROWS * SPEC_A::COLS);
     }
-
     template<typename DEVICE, typename SPEC_A, typename SPEC_B, typename SPEC_DA>
-    void d_mse_d_x(DEVICE& device, Matrix<SPEC_A> a, Matrix<SPEC_B> b, Matrix<SPEC_DA> d_a, typename SPEC_A::T loss_weight = 1) {
+    void gradient(DEVICE& device, Matrix<SPEC_A> a, Matrix<SPEC_B> b, Matrix<SPEC_DA> d_a, typename SPEC_A::T loss_weight = 1) {
         static_assert(containers::check_structure<SPEC_A, SPEC_B>);
         static_assert(containers::check_structure<SPEC_A, SPEC_DA>);
         using T = typename SPEC_A::T;

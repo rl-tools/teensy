@@ -22,7 +22,7 @@ namespace backprop_tools{
 #ifdef BACKPROP_TOOLS_DEBUG_CONTAINER_MALLOC_INIT_NAN
         for(typename SPEC::TI i = 0; i < SPEC::SIZE; i++){
             if constexpr(std::is_convertible<typename SPEC::T, float>::value){
-                matrix._data[i] = 0.0/0.0;
+                matrix._data[i] = math::nan<typename SPEC::T>(typename DEVICE::SPEC::MATH());
             }
         }
 #endif
@@ -44,7 +44,7 @@ namespace backprop_tools{
 #ifdef BACKPROP_TOOLS_DEBUG_CONTAINER_MALLOC_INIT_NAN
         for(typename SPEC::TI i = 0; i < SPEC::SIZE; i++){
             if constexpr(std::is_convertible<typename SPEC::T, float>::value){
-                matrix._data[i] = 0.0/0.0;
+                matrix._data[i] = math::nan<typename SPEC::T>(typename DEVICE::SPEC::MATH());
             }
         }
 #endif
@@ -60,11 +60,19 @@ namespace backprop_tools{
 #endif
 
     template<typename SPEC>
-    BACKPROP_TOOLS_FUNCTION_PLACEMENT typename SPEC::TI row_pitch(const Matrix<SPEC>& m){
+    BACKPROP_TOOLS_FUNCTION_PLACEMENT constexpr typename SPEC::TI rows(const Matrix<SPEC>& m){
+        return SPEC::ROWS;
+    }
+    template<typename SPEC>
+    BACKPROP_TOOLS_FUNCTION_PLACEMENT constexpr typename SPEC::TI cols(const Matrix<SPEC>& m){
+        return SPEC::COLS;
+    }
+    template<typename SPEC>
+    BACKPROP_TOOLS_FUNCTION_PLACEMENT constexpr typename SPEC::TI row_pitch(const Matrix<SPEC>& m){
         return SPEC::ROW_PITCH;
     }
     template<typename SPEC>
-    BACKPROP_TOOLS_FUNCTION_PLACEMENT typename SPEC::TI col_pitch(const Matrix<SPEC>& m){
+    BACKPROP_TOOLS_FUNCTION_PLACEMENT constexpr typename SPEC::TI col_pitch(const Matrix<SPEC>& m){
         return SPEC::COL_PITCH;
     }
 
@@ -133,6 +141,14 @@ namespace backprop_tools{
         template<typename DEVICE, typename T>
         inline bool is_finite(DEVICE dev, bool a, T c){
             return a && math::is_finite(dev, c);
+        }
+        template<typename DEVICE, typename T>
+        inline T max(DEVICE dev, T a, T c){
+            return math::max(dev, a, c);
+        }
+        template<typename DEVICE, typename T>
+        inline T min(DEVICE dev, T a, T c){
+            return math::min(dev, a, c);
         }
     }
     template<typename DEVICE, typename SPEC>
@@ -359,6 +375,20 @@ namespace backprop_tools{
     bool is_finite(DEVICE& device, const Matrix<SPEC>& m){
         return reduce_unary<DEVICE, SPEC, bool, containers::vectorization::operators::is_finite<typename DEVICE::SPEC::MATH, typename SPEC::T>>(device, m, true);
     }
+    template<typename DEVICE, typename SPEC>
+    typename SPEC::T max(DEVICE& device, const Matrix<SPEC>& m){
+        static_assert(SPEC::ROWS > 0 && SPEC::COLS > 0);
+        using T = typename SPEC::T;
+        T init = get(m, 0, 0);
+        return reduce_unary<DEVICE, SPEC, T, containers::vectorization::operators::max<typename DEVICE::SPEC::MATH, typename SPEC::T>>(device, m, init);
+    }
+    template<typename DEVICE, typename SPEC>
+    typename SPEC::T min(DEVICE& device, const Matrix<SPEC>& m){
+        static_assert(SPEC::ROWS > 0 && SPEC::COLS > 0);
+        using T = typename SPEC::T;
+        T init = get(m, 0, 0);
+        return reduce_unary<DEVICE, SPEC, T, containers::vectorization::operators::min<typename DEVICE::SPEC::MATH, typename SPEC::T>>(device, m, init);
+    }
     template<typename TARGET_DEVICE, typename SPEC, typename T>
     void assign(TARGET_DEVICE& target_device, Matrix<SPEC>& target, const T* source, typename SPEC::TI row = 0, typename SPEC::TI col = 0, typename SPEC::TI rows = SPEC::ROWS, typename SPEC::TI cols = SPEC::COLS, typename SPEC::TI row_pitch = SPEC::COLS, typename SPEC::TI col_pitch = 1){
         using TI = typename SPEC::TI;
@@ -523,6 +553,103 @@ namespace backprop_tools{
     template <typename DEVICE, typename MEAN_SPEC, typename STD_SPEC, typename INPUT_SPEC>
     void normalize(DEVICE& device, Matrix<MEAN_SPEC>& mean, Matrix<STD_SPEC>& std, Matrix<INPUT_SPEC>& m){
         normalize(device, mean, std, m, m);
+    }
+    template <typename DEVICE, typename SPEC_INPUT, typename SPEC_OUTPUT>
+    void argmax_row_wise(DEVICE& device, Matrix<SPEC_INPUT>& input, Matrix<SPEC_OUTPUT>& output){
+        static_assert(SPEC_INPUT::ROWS == SPEC_OUTPUT::ROWS);
+        static_assert(SPEC_OUTPUT::COLS == 1);
+        using T = typename SPEC_INPUT::T;
+        using TI = typename DEVICE::index_t;
+
+        for(TI row_i = 0; row_i < SPEC_INPUT::ROWS; row_i++){
+            T max = 0;
+            TI argmax = 0;
+            for(TI col_i = 0; col_i < SPEC_INPUT::COLS; col_i++){
+                if(col_i == 0){
+                    max = get(input, row_i, col_i);
+                    argmax = col_i;
+                }
+                else{
+                    T value = get(input, row_i, col_i);
+                    if(value > max){
+                        max = value;
+                        argmax = col_i;
+                    }
+                }
+            }
+            set(output, row_i, 0, argmax);
+        }
+    }
+    template <typename DEVICE, typename SPEC_INPUT>
+    typename DEVICE::index_t argmax_row(DEVICE& device, Matrix<SPEC_INPUT>& input){
+        static_assert(SPEC_INPUT::ROWS == 1);
+        using T = typename SPEC_INPUT::T;
+        using TI = typename DEVICE::index_t;
+        MatrixStatic<matrix::Specification<TI, TI, 1, 1>> output;
+        malloc(device, output);
+        argmax_row_wise(device, input, output);
+        auto result = get(output, 0, 0);
+        free(device, output);
+        return result;
+    }
+
+    template <typename DEVICE, typename SPEC_INPUT, typename SPEC_OUTPUT>
+    void argmax_col_wise(DEVICE& device, Matrix<SPEC_INPUT>& input, Matrix<SPEC_OUTPUT>& output){
+        static_assert(SPEC_INPUT::ROWS == SPEC_OUTPUT::ROWS);
+        static_assert(SPEC_OUTPUT::COLS == 1);
+        using T = typename SPEC_INPUT::T;
+        using TI = typename DEVICE::index_t;
+
+        for(TI col_i = 0; col_i < SPEC_INPUT::COLS; col_i++){
+            T max = 0;
+            TI argmax = 0;
+            for(TI row_i = 0; row_i < SPEC_INPUT::ROWS; row_i++){
+                if(col_i == 0){
+                    max = get(input, row_i, col_i);
+                    argmax = row_i;
+                }
+                else{
+                    T value = get(input, row_i, col_i);
+                    if(value > max){
+                        max = value;
+                        argmax = row_i;
+                    }
+                }
+            }
+            set(output, col_i, 0, argmax);
+        }
+    }
+
+    template <typename DEVICE, typename SPEC_INPUT>
+    typename DEVICE::index_t argmax_col(DEVICE& device, Matrix<SPEC_INPUT>& input){
+        static_assert(SPEC_INPUT::COL == 1);
+        using T = typename SPEC_INPUT::T;
+        using TI = typename DEVICE::index_t;
+        MatrixStatic<matrix::Specification<TI, TI, 1, 1>> output;
+        malloc(device, output);
+        argmax_col_wise(device, input, output);
+        auto result = get(output, 0, 0);
+        free(device, output);
+        return result;
+    }
+    template<typename DEVICE, typename INPUT_SPEC_A, typename INPUT_SPEC_B, typename OUTPUT_SPEC>
+    void multiply(DEVICE& device, const Matrix<INPUT_SPEC_A>& A, const Matrix<INPUT_SPEC_B>& B, Matrix<OUTPUT_SPEC>& output) {
+        static_assert(INPUT_SPEC_A::ROWS == OUTPUT_SPEC::ROWS);
+        static_assert(INPUT_SPEC_A::COLS == INPUT_SPEC_B::ROWS);
+        static_assert(INPUT_SPEC_B::COLS == OUTPUT_SPEC::COLS);
+
+        using T = typename OUTPUT_SPEC::T;
+        using TI = typename DEVICE::index_t;
+
+        for(TI row_i = 0; row_i < OUTPUT_SPEC::ROWS; row_i++){
+            for(TI col_i = 0; col_i < OUTPUT_SPEC::COLS; col_i++){
+                T acc = 0;
+                for(TI k = 0; k < INPUT_SPEC_A::COLS; k++){
+                    acc += get(A, row_i, k) * get(B, k, col_i);
+                }
+                set(output, row_i, col_i, acc);
+            }
+        }
     }
 }
 #endif

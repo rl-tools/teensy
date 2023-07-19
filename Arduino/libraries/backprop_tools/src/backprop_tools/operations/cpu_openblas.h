@@ -4,6 +4,6 @@ namespace backprop_tools{
 }
 #endif
 
-#include "cuda/group_1.h"
-#include "cuda/group_2.h"
-#include "cuda/group_3.h"
+#include "cpu_openblas/group_1.h"
+#include "cpu_openblas/group_2.h"
+#include "cpu_openblas/group_3.h"

@@ -23,7 +23,7 @@ EXTMEM: off_policy_runner/replay_buffer
 #define RL_TOOLS_DEPLOYMENT_ARDUINO
 #define BENCHMARK
 // #define RL_TOOLS_DISABLE_EVALUATION
-#include </home/jonas/rl_tools/src/rl/environments/pendulum/sac/arm/training2.h>
+#include </home/jonas/rl_tools/src/rl/environments/pendulum/sac/arm/training.h>
 #else
 #include <rl_tools/operations/arm.h>
 #include <rl_tools/nn/layers/dense/operations_arm/dsp.h>

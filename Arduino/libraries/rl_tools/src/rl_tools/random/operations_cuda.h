@@ -14,8 +14,8 @@ namespace rl_tools::random{
     namespace cuda{
         using RNG = unsigned int; // actually the seed
     }
-    cuda::RNG default_engine(const devices::random::CUDA& dev){
-        return 1337;
+    cuda::RNG default_engine(const devices::random::CUDA& dev, devices::random::CUDA::index_t seed = 1){
+        return 1337 + 1;
     };
 
     cuda::RNG next(const devices::random::CUDA& dev, cuda::RNG& rng){
@@ -38,7 +38,7 @@ namespace rl_tools::random{
     }
     template<typename T, typename RNG>
     RL_TOOLS_FUNCTION_PLACEMENT T uniform_int_distribution(const devices::random::CUDA& dev, T low, T high, RNG& rng){
-        auto r = uniform_real_distribution(dev, low, high, rng);
+        auto r = uniform_real_distribution(dev, (float)low, (float)high, rng);
         return (T)r;
     }
     namespace normal_distribution{
@@ -60,11 +60,19 @@ namespace rl_tools::random{
         template<typename DEVICE, typename T>
         RL_TOOLS_FUNCTION_PLACEMENT T log_prob(const devices::random::CUDA& dev, T mean, T log_std, T value){
             static_assert(utils::typing::is_same_v<T, float> || utils::typing::is_same_v<T, double>);
-            T neg_log_sqrt_pi = -0.5 * math::log(typename DEVICE::SPEC::MATH{}, 2 * math::PI<T>);
-            T diff = (value - mean);
-            T std = math::exp(typename DEVICE::SPEC::MATH{}, log_std);
-            T pre_square = diff/std;
-            return neg_log_sqrt_pi - log_std - 0.5 * pre_square * pre_square;
+            return log_prob(devices::random::Generic<devices::math::CUDA>{}, mean, log_std, value);
+        }
+        template<typename DEVICE, typename T>
+        RL_TOOLS_FUNCTION_PLACEMENT T d_log_prob_d_mean(const devices::random::CUDA& dev, T mean, T log_std, T value){
+            return d_log_prob_d_mean(devices::random::Generic<devices::math::CUDA>{}, mean, log_std, value);
+        }
+        template<typename DEVICE, typename T>
+        RL_TOOLS_FUNCTION_PLACEMENT T d_log_prob_d_log_std(const devices::random::CUDA& dev, T mean, T log_std, T value){
+            return d_log_prob_d_log_std(devices::random::Generic<devices::math::CUDA>{}, mean, log_std, value);
+        }
+        template<typename DEVICE, typename T>
+        RL_TOOLS_FUNCTION_PLACEMENT T d_log_prob_d_sample(const devices::random::CUDA& dev, T mean, T log_std, T value){
+            return d_log_prob_d_sample(devices::random::Generic<devices::math::CUDA>{}, mean, log_std, value);
         }
     }
 }

@@ -8,13 +8,13 @@
 RL_TOOLS_NAMESPACE_WRAPPER_START
 namespace rl_tools::rl::loop::steps::evaluation{
     template<typename T_CONFIG, typename T_NEXT = typename T_CONFIG::NEXT::template State<typename T_CONFIG::NEXT>>
-    struct TrainingState: T_NEXT {
+    struct State: T_NEXT {
         using CONFIG = T_CONFIG;
         using NEXT = T_NEXT;
         using T = typename CONFIG::T;
         using TI = typename CONFIG::TI;
         rl::utils::evaluation::Result<T, TI, CONFIG::PARAMETERS::NUM_EVALUATION_EPISODES> evaluation_results[CONFIG::PARAMETERS::N_EVALUATIONS];
-        decltype(random::default_engine(typename NEXT::DEVICE::SPEC::RANDOM())) rng_eval;
+        typename CONFIG::RNG rng_eval;
         typename NEXT::CONFIG::ENVIRONMENT_EVALUATION env_eval;
     };
 }

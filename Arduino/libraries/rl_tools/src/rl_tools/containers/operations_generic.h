@@ -25,7 +25,7 @@ namespace rl_tools{
 #ifdef RL_TOOLS_DEBUG_CONTAINER_CHECK_MALLOC
         utils::assert_exit(device, matrix._data == nullptr, "Matrix is already allocated");
 #endif
-        matrix._data = (typename SPEC::T*)&matrix._data_memory[0];
+//        matrix._data = (typename SPEC::T*)&matrix._data_memory[0];
 #ifdef RL_TOOLS_DEBUG_CONTAINER_MALLOC_INIT_NAN
         for(typename SPEC::TI i = 0; i < SPEC::SIZE; i++){
             if constexpr(std::is_convertible<typename SPEC::T, float>::value){
@@ -107,7 +107,7 @@ namespace rl_tools{
             ss << "index: " << row << "(" << SPEC::ROWS << "):" << col << "(" << SPEC::COLS << ") out of bounds";
             throw std::runtime_error(ss.str());
 #else
-            printf("index: %d(%d):%d(%d) out of bounds", row, SPEC::ROWS, col, SPEC::COLS);
+            printf("index: %d(%d):%d(%d) out of bounds", (int)row, (int)SPEC::ROWS, (int)col, (int)SPEC::COLS);
 #endif
         }
 #endif
@@ -465,21 +465,22 @@ namespace rl_tools{
         static_assert(SPEC::ROWS >= ROWS);
         static_assert(SPEC::COLS >= COLS);
         using ViewLayout = matrix::layouts::Fixed<typename SPEC::TI, SPEC::ROW_PITCH, SPEC::COL_PITCH>;
-        MatrixDynamic<matrix::Specification<typename SPEC::T, typename SPEC::TI, ROWS, COLS, ViewLayout, true>> out = {m._data};
+        MatrixDynamic<matrix::Specification<typename SPEC::T, typename SPEC::TI, ROWS, COLS, ViewLayout, true>> out;
+        out._data = m._data;
         return out;
     }
     template<typename DEVICE, typename SPEC, typename SPEC::TI ROWS, typename SPEC::TI COLS>
-    RL_TOOLS_FUNCTION_PLACEMENT auto view(DEVICE& device, const Matrix<SPEC>& m, typename SPEC::TI row, typename SPEC::TI col){
+    RL_TOOLS_FUNCTION_PLACEMENT auto _view(DEVICE& device, const Matrix<SPEC>& m, typename SPEC::TI row, typename SPEC::TI col){
         static_assert(SPEC::ROWS >= ROWS);
         static_assert(SPEC::COLS >= COLS);
-#ifdef RL_TOOLS_DEBUG_CONTAINER_CHECK_BOUNDS
-        utils::assert_exit(device, (row + ROWS) <= SPEC::ROWS, "row + ROWS <= SPEC::ROWS");
-        utils::assert_exit(device, (col + COLS) <= SPEC::COLS, "col + COLS <= SPEC::COLS");
-#endif
         using ViewLayout = matrix::layouts::Fixed<typename SPEC::TI, SPEC::ROW_PITCH, SPEC::COL_PITCH>;
         MatrixDynamic<matrix::Specification<typename SPEC::T, typename SPEC::TI, ROWS, COLS, ViewLayout, true>> out;
         out._data = m._data + row * row_pitch(m) + col * col_pitch(m);
         return out;
+    }
+    template<typename DEVICE, typename SPEC, typename SPEC::TI ROWS, typename SPEC::TI COLS>
+    RL_TOOLS_FUNCTION_PLACEMENT auto view(DEVICE& device, const Matrix<SPEC>& m, typename SPEC::TI row, typename SPEC::TI col){
+        return _view<DEVICE, SPEC, ROWS, COLS>(device, m, row, col); // so that the CPU implementation can reuse _view while doing runtime bounds checking if wished for
     }
     template<typename DEVICE, typename SPEC, typename ViewSpec>
     RL_TOOLS_FUNCTION_PLACEMENT auto view(DEVICE& device, const Matrix<SPEC>& m, const ViewSpec& vs, typename SPEC::TI row, typename SPEC::TI col){

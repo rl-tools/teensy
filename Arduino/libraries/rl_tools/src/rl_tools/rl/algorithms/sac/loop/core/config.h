@@ -20,7 +20,7 @@ namespace rl_tools::rl::algorithms::sac::loop::core{
         static constexpr TI N_WARMUP_STEPS = SAC_PARAMETERS::ACTOR_BATCH_SIZE;
         static constexpr TI STEP_LIMIT = 10000;
         static constexpr TI REPLAY_BUFFER_CAP = STEP_LIMIT;
-        static constexpr TI ENVIRONMENT_STEP_LIMIT = 200;
+        static constexpr TI EPISODE_STEP_LIMIT = 200;
 
         static constexpr TI ACTOR_HIDDEN_DIM = 64;
         static constexpr TI ACTOR_NUM_LAYERS = 3;
@@ -125,7 +125,7 @@ namespace rl_tools::rl::algorithms::sac::loop::core{
                 1,
                 false,
                 PARAMETERS::REPLAY_BUFFER_CAP,
-                PARAMETERS::ENVIRONMENT_STEP_LIMIT,
+                PARAMETERS::EPISODE_STEP_LIMIT,
                 rl::components::off_policy_runner::DefaultParameters<T>,
                 STOCHASTIC_POLICY,
                 PARAMETERS::COLLECT_EPISODE_STATS,

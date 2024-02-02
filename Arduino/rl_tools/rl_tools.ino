@@ -101,7 +101,7 @@ using CONFIG = LOOP_CORE_CONFIG;
 //   bool finished = false;
 //   TI evaluation_index = step / LOOP_EVAL_CONFIG::PARAMETERS::EVALUATION_INTERVAL;
 //   if(step % LOOP_EVAL_CONFIG::PARAMETERS::EVALUATION_INTERVAL == 0 && evaluation_index < LOOP_EVAL_CONFIG::PARAMETERS::N_EVALUATIONS){
-//     auto result = rlt::evaluate(device, env_eval, ui, actor_critic.actor, rlt::rl::utils::evaluation::Specification<LOOP_EVAL_CONFIG::PARAMETERS::NUM_EVALUATION_EPISODES, CONFIG::PARAMETERS::ENVIRONMENT_STEP_LIMIT>(), observations_mean, observations_std, actor_deterministic_evaluation_buffers, rng_eval, false);
+//     auto result = rlt::evaluate(device, env_eval, ui, actor_critic.actor, rlt::rl::utils::evaluation::Specification<LOOP_EVAL_CONFIG::PARAMETERS::NUM_EVALUATION_EPISODES, CONFIG::PARAMETERS::EPISODE_STEP_LIMIT>(), observations_mean, observations_std, actor_deterministic_evaluation_buffers, rng_eval, false);
 //     rlt::log(device, device.logger, "Step: ", step, " Mean return: ", result.returns_mean);
 //     rlt::add_scalar(device, device.logger, "evaluation/return/mean", result.returns_mean);
 //     rlt::add_scalar(device, device.logger, "evaluation/return/std", result.returns_std);

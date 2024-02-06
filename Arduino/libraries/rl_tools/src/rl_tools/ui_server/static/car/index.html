@@ -1,0 +1,24 @@
+<html>
+<head>
+    <title>Car Racing</title>
+    <link rel="icon" type="image/png" href="favicon.png">
+    <link rel="stylesheet" href="index.css">
+</head>
+<body>
+<!-- Current value: <strong id="counter">0</strong> -->
+<script type="module" src="main.js"></script>
+<!--<div id="canvasContainer">hello</div>-->
+<div id="aspectRatioContainer">
+    <div id="canvasContainer">
+        <canvas id="drawingCanvas" width="100" height="100"></canvas>
+    </div>
+</div>
+<div id="controlContainer">
+    <input type="range" id="steeringSlider" name="slider" min="-100" max="100" value="0">
+    <input type="button" id="resetTrackButton" value="Reset Track">
+    <input type="button" id="saveTrackButton" value="Save Track">
+    <input type="button" id="playButton" value="Play Interactively">
+    <input type="button" id="trainButton" value="Train">
+</div>
+</body>
+</html>

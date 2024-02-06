@@ -22,7 +22,16 @@ namespace rl_tools{
     template<typename DEVICE, typename SPEC>
     static void malloc(DEVICE& device, const rl::environments::Car<SPEC>& env){ }
     template<typename DEVICE, typename SPEC>
-    static void init(DEVICE& device, const rl::environments::Car<SPEC>& env, bool ui = false){ }
+    static void init(DEVICE& device, rl::environments::CarTrack<SPEC>& env, bool ui = false){
+        using T = typename SPEC::T;
+        using TI = typename SPEC::TI;
+        for(TI row_i=0; row_i < SPEC::HEIGHT; row_i++){
+            for(TI col_i=0; col_i < SPEC::WIDTH; col_i++){
+                env.parameters.track[row_i][col_i] = true;
+            }
+        }
+        env.initialized = true;
+    }
     template<typename DEVICE, typename SPEC>
     static void initial_state(DEVICE& device, const rl::environments::Car<SPEC>& env, typename rl::environments::Car<SPEC>::State& state){
         state.x = 0;
@@ -102,6 +111,9 @@ namespace rl_tools{
     }
     template<typename DEVICE, typename SPEC, typename OBS_SPEC, typename RNG>
     RL_TOOLS_FUNCTION_PLACEMENT static void observe(DEVICE& device, const rl::environments::CarTrack<SPEC>& env, const typename rl::environments::CarTrack<SPEC>::State& state, Matrix<OBS_SPEC>& observation, RNG& rng){
+#ifdef RL_TOOLS_DEBUG
+        utils::assert_exit(device, env.initialized, "Environment not initialized");
+#endif
         using ENVIRONMENT = rl::environments::CarTrack<SPEC>;
         static_assert(OBS_SPEC::ROWS == 1);
         static_assert(OBS_SPEC::COLS == ENVIRONMENT::OBSERVATION_DIM);
@@ -138,6 +150,9 @@ namespace rl_tools{
     }
     template<typename DEVICE, typename SPEC, typename RNG>
     RL_TOOLS_FUNCTION_PLACEMENT static bool terminated(DEVICE& device, const rl::environments::CarTrack<SPEC>& env, const typename rl::environments::CarTrack<SPEC>::State state, RNG& rng){
+#ifdef RL_TOOLS_DEBUG
+        utils::assert_exit(device, env.initialized, "Environment not initialized");
+#endif
         using T = typename SPEC::T;
         using TI = typename SPEC::TI;
         T x_coord = (state.x + SPEC::TRACK_SCALE * SPEC::WIDTH / 2.0) / ((T)SPEC::TRACK_SCALE);

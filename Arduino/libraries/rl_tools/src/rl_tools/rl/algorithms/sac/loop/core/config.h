@@ -19,7 +19,7 @@ namespace rl_tools::rl::algorithms::sac::loop::core{
         using SAC_PARAMETERS = rl::algorithms::sac::DefaultParameters<T, TI, ENVIRONMENT::ACTION_DIM>;
         static constexpr TI N_WARMUP_STEPS = SAC_PARAMETERS::ACTOR_BATCH_SIZE;
         static constexpr TI STEP_LIMIT = 10000;
-        static constexpr TI REPLAY_BUFFER_CAP = STEP_LIMIT;
+        static constexpr TI REPLAY_BUFFER_CAP = STEP_LIMIT; // Note: when inheriting from this class for overwriting the default STEP_LIMIT you need to set the REPLAY_BUFFER_CAP as well otherwise it will be the default step limit
         static constexpr TI EPISODE_STEP_LIMIT = 200;
 
         static constexpr TI ACTOR_HIDDEN_DIM = 64;
@@ -91,7 +91,7 @@ namespace rl_tools::rl::algorithms::sac::loop::core{
         using CRITIC_SPEC = nn_models::mlp::AdamSpecification<CRITIC_STRUCTURE_SPEC>;
         using CRITIC_TYPE = nn_models::mlp::NeuralNetworkAdam<CRITIC_SPEC>;
 
-        using CRITIC_TARGET_SPEC = nn_models::mlp::InferenceSpecification<CRITIC_STRUCTURE_SPEC >;
+        using CRITIC_TARGET_SPEC = nn_models::mlp::InferenceSpecification<CRITIC_STRUCTURE_SPEC>;
         using CRITIC_TARGET_TYPE = nn_models::mlp::NeuralNetwork<CRITIC_TARGET_SPEC>;
     };
 
@@ -102,11 +102,10 @@ namespace rl_tools::rl::algorithms::sac::loop::core{
         using RNG = T_RNG;
         using ENVIRONMENT = T_ENVIRONMENT;
         using ENVIRONMENT_EVALUATION = T_ENVIRONMENT;
-        using UI = bool;
-        using PARAMETERS = T_PARAMETERS;
+        using CORE_PARAMETERS = T_PARAMETERS;
         using CONTAINER_TYPE_TAG = T_CONTAINER_TYPE_TAG;
 
-        using NN = APPROXIMATOR_CONFIG<T, TI, T_ENVIRONMENT, T_PARAMETERS, CONTAINER_TYPE_TAG>;
+        using NN = APPROXIMATOR_CONFIG<T, TI, T_ENVIRONMENT, CORE_PARAMETERS, CONTAINER_TYPE_TAG>;
 //        using NN = ConfigApproximatorsMLP<T, TI, T_ENVIRONMENT, T_PARAMETERS>;
 
 
@@ -114,7 +113,7 @@ namespace rl_tools::rl::algorithms::sac::loop::core{
         using ALPHA_PARAMETER_TYPE = nn::parameters::Adam;
         using ALPHA_OPTIMIZER = nn::optimizers::Adam<typename NN::OPTIMIZER_SPEC>;
 
-        using ACTOR_CRITIC_SPEC = rl::algorithms::sac::Specification<T, TI, ENVIRONMENT, typename NN::ACTOR_TYPE, typename NN::CRITIC_TYPE, typename NN::CRITIC_TARGET_TYPE, ALPHA_PARAMETER_TYPE, typename NN::OPTIMIZER, typename NN::OPTIMIZER, ALPHA_OPTIMIZER, typename PARAMETERS::SAC_PARAMETERS, CONTAINER_TYPE_TAG>;
+        using ACTOR_CRITIC_SPEC = rl::algorithms::sac::Specification<T, TI, ENVIRONMENT, typename NN::ACTOR_TYPE, typename NN::CRITIC_TYPE, typename NN::CRITIC_TARGET_TYPE, ALPHA_PARAMETER_TYPE, typename NN::OPTIMIZER, typename NN::OPTIMIZER, ALPHA_OPTIMIZER, typename CORE_PARAMETERS::SAC_PARAMETERS, CONTAINER_TYPE_TAG>;
         using ACTOR_CRITIC_TYPE = rl::algorithms::sac::ActorCritic<ACTOR_CRITIC_SPEC>;
 
         static constexpr bool STOCHASTIC_POLICY = true;
@@ -124,12 +123,12 @@ namespace rl_tools::rl::algorithms::sac::loop::core{
                 ENVIRONMENT,
                 1,
                 false,
-                PARAMETERS::REPLAY_BUFFER_CAP,
-                PARAMETERS::EPISODE_STEP_LIMIT,
+                CORE_PARAMETERS::REPLAY_BUFFER_CAP,
+                CORE_PARAMETERS::EPISODE_STEP_LIMIT,
                 rl::components::off_policy_runner::DefaultParameters<T>,
                 STOCHASTIC_POLICY,
-                PARAMETERS::COLLECT_EPISODE_STATS,
-                PARAMETERS::EPISODE_STATS_BUFFER_SIZE,
+                CORE_PARAMETERS::COLLECT_EPISODE_STATS,
+                CORE_PARAMETERS::EPISODE_STATS_BUFFER_SIZE,
                 CONTAINER_TYPE_TAG
         >;
         static_assert(ACTOR_CRITIC_TYPE::SPEC::PARAMETERS::ACTOR_BATCH_SIZE == ACTOR_CRITIC_TYPE::SPEC::PARAMETERS::CRITIC_BATCH_SIZE);

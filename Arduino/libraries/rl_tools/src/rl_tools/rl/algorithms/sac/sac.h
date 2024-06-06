@@ -20,11 +20,11 @@ namespace rl_tools::rl::algorithms::sac {
         static constexpr TI CRITIC_TARGET_UPDATE_INTERVAL = 1;
         static constexpr T ACTOR_POLYAK = 1.0 - 0.005;
         static constexpr T CRITIC_POLYAK = 1.0 - 0.005;
-//        static constexpr T TARGET_NEXT_ACTION_NOISE_STD = 0.2;
-//        static constexpr T TARGET_NEXT_ACTION_NOISE_CLIP = 0.5;
         static constexpr bool IGNORE_TERMINATION = false; // ignoring the termination flag is useful for training on environments with negative rewards, where the agent would try to terminate the episode as soon as possible otherwise
         static constexpr T TARGET_ENTROPY = -((T)ACTION_DIM);
         static constexpr bool ADAPTIVE_ALPHA = true;
+        static constexpr T ACTION_LOG_STD_LOWER_BOUND = -20;
+        static constexpr T ACTION_LOG_STD_UPPER_BOUND = 2;
     };
 
     template<
@@ -107,7 +107,7 @@ namespace rl_tools::rl::algorithms::sac {
 
         typename CONTAINER_TYPE_TAG::template type<matrix::Specification<T, TI, BATCH_SIZE, CRITIC_OBSERVATION_DIM + ACTION_DIM>> d_input;
         typename CONTAINER_TYPE_TAG::template type<matrix::Specification<T, TI, BATCH_SIZE, 1>> d_output;
-        typename CONTAINER_TYPE_TAG::template type<matrix::Specification<T, TI, BATCH_SIZE, 1>> action_log_probs;
+        typename CONTAINER_TYPE_TAG::template type<matrix::Specification<T, TI, BATCH_SIZE, 1>> next_action_log_probs;
     };
 
     template<typename T_SPEC>

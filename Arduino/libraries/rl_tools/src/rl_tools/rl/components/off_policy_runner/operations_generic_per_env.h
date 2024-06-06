@@ -14,9 +14,9 @@ namespace rl_tools::rl::components::off_policy_runner{
         using ENVIRONMENT = typename SPEC::ENVIRONMENT;
         auto& env = runner.envs[env_i];
         auto& state = get(runner.states, 0, env_i);
-        static_assert(!SPEC::COLLECT_EPISODE_STATS || SPEC::EPISODE_STATS_BUFFER_SIZE > 1);
+        static_assert(!SPEC::PARAMETERS::COLLECT_EPISODE_STATS || SPEC::PARAMETERS::EPISODE_STATS_BUFFER_SIZE > 1);
         if (get(runner.truncated, 0, env_i)){
-            if constexpr(SPEC::COLLECT_EPISODE_STATS){
+            if constexpr(SPEC::PARAMETERS::COLLECT_EPISODE_STATS){
                 // todo: the first episode is always zero steps and zero return because the initialization is done by setting truncated to true
                 auto& episode_stats = runner.episode_stats[env_i];
                 TI next_episode_i = episode_stats.next_episode_i;
@@ -24,7 +24,7 @@ namespace rl_tools::rl::components::off_policy_runner{
                     TI episode_i = next_episode_i - 1;
                     set(episode_stats.returns, episode_i, 0, get(runner.episode_return, 0, env_i));
                     set(episode_stats.steps  , episode_i, 0, get(runner.episode_step  , 0, env_i));
-                    episode_i = (episode_i + 1) % SPEC::EPISODE_STATS_BUFFER_SIZE;
+                    episode_i = (episode_i + 1) % SPEC::PARAMETERS::EPISODE_STATS_BUFFER_SIZE;
                     next_episode_i = episode_i + 1;
                 }
                 else{
@@ -39,38 +39,47 @@ namespace rl_tools::rl::components::off_policy_runner{
         auto observation            = view<DEVICE, typename decltype(runner.buffers.observations           )::SPEC, 1, ENVIRONMENT::OBSERVATION_DIM           >(device, runner.buffers.observations           , env_i, 0);
         auto observation_privileged = view<DEVICE, typename decltype(runner.buffers.observations_privileged)::SPEC, 1, SPEC::OBSERVATION_DIM_PRIVILEGED>(device, runner.buffers.observations_privileged, env_i, 0);
         observe(device, env, state, observation, rng);
-        if constexpr(SPEC::ASYMMETRIC_OBSERVATIONS){
+        if constexpr(SPEC::PARAMETERS::ASYMMETRIC_OBSERVATIONS){
             observe_privileged(device, env, state, observation_privileged, rng);
         }
     }
-    template<typename DEVICE, typename SPEC, typename RNG>
-    RL_TOOLS_FUNCTION_PLACEMENT auto process_and_get_action(DEVICE& device, rl::components::OffPolicyRunner<SPEC>& runner, RNG &rng, typename DEVICE::index_t env_i) {
+    template<typename DEVICE, typename SPEC, typename POLICY, typename RNG>
+    RL_TOOLS_FUNCTION_PLACEMENT auto process_and_get_action(DEVICE& device, rl::components::OffPolicyRunner<SPEC>& runner, const POLICY& policy, RNG &rng, typename DEVICE::index_t env_i) {
         using T = typename SPEC::T;
         using TI = typename SPEC::TI;
         using ENVIRONMENT = typename SPEC::ENVIRONMENT;
-        if constexpr(SPEC::STOCHASTIC_POLICY){
+        static constexpr bool STOCHASTIC_POLICY = POLICY::OUTPUT_DIM == ENVIRONMENT::ACTION_DIM * 2;
+        if constexpr(STOCHASTIC_POLICY){
             for (TI i = 0; i < ENVIRONMENT::ACTION_DIM; i++){
-                T std = math::exp(typename DEVICE::SPEC::MATH{}, get(runner.buffers.actions, env_i, ENVIRONMENT::ACTION_DIM+i));
-                T action_noisy = random::normal_distribution::sample(typename DEVICE::SPEC::RANDOM(), get(runner.buffers.actions, env_i, i), std, rng);
-                set(runner.buffers.actions, env_i, i, math::clamp<T>(device.math, action_noisy, -1, 1));
+                T log_std = get(runner.buffers.actions, env_i, ENVIRONMENT::ACTION_DIM+i);
+                T log_std_clip = math::clamp<T>(device.math, log_std, (T)-20, (T)2); // todo: absorb this into the policy
+                T std = math::exp(typename DEVICE::SPEC::MATH{}, log_std_clip);
+                T mu = get(runner.buffers.actions, env_i, i);
+                T action_noisy = random::normal_distribution::sample(typename DEVICE::SPEC::RANDOM(), mu, std, rng);
+                if constexpr(SPEC::ACTION_CLAMPING_TANH){
+                    set(runner.buffers.actions, env_i, i, math::tanh<T>(device.math, action_noisy));
+                }
+                else{
+                    set(runner.buffers.actions, env_i, i, math::clamp<T>(device.math, action_noisy, (T)-1, (T)1));
+                }
             }
             return view(device, runner.buffers.actions, matrix::ViewSpec<1, SPEC::ENVIRONMENT::ACTION_DIM>{}, env_i, 0);
         }
         else{
             for (TI i = 0; i < ENVIRONMENT::ACTION_DIM; i++){
                 T action_noisy = get(runner.buffers.actions, env_i, i) + random::normal_distribution::sample(typename DEVICE::SPEC::RANDOM(), (T) 0, runner.parameters.exploration_noise, rng);
-                set(runner.buffers.actions, env_i, i, math::clamp<T>(device.math, action_noisy, -1, 1));
+                set(runner.buffers.actions, env_i, i, math::clamp<T>(device.math, action_noisy, (T)-1, (T)1));
             }
-            return row(device, runner.buffers.actions, env_i);
+            return view(device, runner.buffers.actions, matrix::ViewSpec<1, SPEC::ENVIRONMENT::ACTION_DIM>{}, env_i, 0);
+//            return row(device, runner.buffers.actions, env_i);
         }
 
     }
-    template<typename DEVICE, typename SPEC, typename RNG>
-    RL_TOOLS_FUNCTION_PLACEMENT void epilogue_per_env(DEVICE& device, rl::components::OffPolicyRunner<SPEC>& runner, RNG &rng, typename DEVICE::index_t env_i) {
+    template<typename DEVICE, typename SPEC, typename POLICY, typename RNG>
+    RL_TOOLS_FUNCTION_PLACEMENT void epilogue_per_env(DEVICE& device, rl::components::OffPolicyRunner<SPEC>& runner, const POLICY& policy, RNG &rng, typename DEVICE::index_t env_i) {
         using T = typename SPEC::T;
         using TI = typename SPEC::TI;
         using ENVIRONMENT = typename SPEC::ENVIRONMENT;
-        using PARAMETERS = typename SPEC::PARAMETERS;
         auto observation                 = view<DEVICE, typename decltype(runner.buffers.observations           )::SPEC, 1, ENVIRONMENT::OBSERVATION_DIM           >(device, runner.buffers.observations           , env_i, 0);
         auto observation_privileged      = view<DEVICE, typename decltype(runner.buffers.observations_privileged)::SPEC, 1, SPEC::OBSERVATION_DIM_PRIVILEGED>(device, runner.buffers.observations_privileged, env_i, 0);
         auto next_observation            = view<DEVICE, typename decltype(runner.buffers.observations           )::SPEC, 1, ENVIRONMENT::OBSERVATION_DIM           >(device, runner.buffers.next_observations           , env_i, 0);
@@ -80,14 +89,14 @@ namespace rl_tools::rl::components::off_policy_runner{
         auto& state = get(runner.states, 0, env_i);
         typename ENVIRONMENT::State next_state;
 
-        auto action = process_and_get_action(device, runner, rng, env_i);
+        auto action = process_and_get_action(device, runner, policy, rng, env_i);
 
         step(device, env, state, action, next_state, rng);
 
         T reward_value = reward(device, env, state, action, next_state, rng);
 
         observe(device, env, next_state, next_observation, rng);
-        if constexpr(SPEC::ASYMMETRIC_OBSERVATIONS) {
+        if constexpr(SPEC::PARAMETERS::ASYMMETRIC_OBSERVATIONS) {
             observe_privileged(device, env, next_state, next_observation_privileged, rng);
         }
 
@@ -95,7 +104,7 @@ namespace rl_tools::rl::components::off_policy_runner{
         increment(runner.episode_step, 0, env_i, 1);
         increment(runner.episode_return, 0, env_i, reward_value);
         auto episode_step_i = get(runner.episode_step, 0, env_i);
-        bool truncated = terminated_flag || episode_step_i == SPEC::STEP_LIMIT;
+        bool truncated = terminated_flag || episode_step_i == SPEC::PARAMETERS::EPISODE_STEP_LIMIT;
         set(runner.truncated, 0, env_i, truncated);
         add(device, runner.replay_buffers[env_i], state, observation, observation_privileged, action, reward_value, next_state, next_observation, next_observation_privileged, terminated_flag, truncated);
 

@@ -15,6 +15,7 @@ namespace rl_tools::rl::loop::steps::timing{
         std::chrono::high_resolution_clock::time_point start_time;
     };
 }
+RL_TOOLS_NAMESPACE_WRAPPER_END
 #endif
 
 

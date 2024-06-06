@@ -46,7 +46,7 @@ namespace rl_tools{
         }
     }
     template<typename DEVICE, typename SPEC>
-    persist::Code save_split(DEVICE& device, Matrix<SPEC>& m, std::string name, bool const_declaration=false, typename DEVICE::index_t indent=0){
+    persist::Code save_code_split(DEVICE& device, Matrix<SPEC>& m, std::string name, bool const_declaration=false, typename DEVICE::index_t indent=0){
         using T = typename SPEC::T;
         using TI = typename DEVICE::index_t;
         static_assert(utils::typing::is_same_v<containers::persist::STORAGE_TYPE, unsigned char>);
@@ -57,6 +57,7 @@ namespace rl_tools{
         }
         std::string ind = indent_ss.str();
         std::stringstream ss_header;
+        ss_header << "// NOTE: This code export assumes that the endianness of the target platform is the same as the endianness of the source platform\n";
         ss_header << "#include <rl_tools/containers.h>\n";
         std::stringstream ss;
         ss << ind << "namespace " << name << " {\n";
@@ -67,7 +68,7 @@ namespace rl_tools{
             for(TI j=0; j < SPEC::COLS; j++){
                 auto value = get(m, i, j);
                 auto* ptr = reinterpret_cast<containers::persist::STORAGE_TYPE*>(&value);
-                for(int k=0; k < sizeof(T); k++){
+                for(TI k=0; k < sizeof(T); k++){
                     if(!first){
                         ss << ", ";
                     }
@@ -85,7 +86,7 @@ namespace rl_tools{
     }
     template<typename DEVICE, typename SPEC>
     std::string save_code(DEVICE& device, Matrix<SPEC>& m, std::string name, bool const_declaration, typename DEVICE::index_t indent=0){
-        auto code = save_split(device, m, name, const_declaration, indent);
+        auto code = save_code_split(device, m, name, const_declaration, indent);
         return code.header + code.body;
     }
 }

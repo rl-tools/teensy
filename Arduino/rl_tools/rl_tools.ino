@@ -21,7 +21,7 @@ EXTMEM: off_policy_runner/replay_buffer
 #define TRAIN
 #ifdef TRAIN
 #define RL_TOOLS_DEPLOYMENT_ARDUINO
-#define BENCHMARK
+// #define BENCHMARK
 // #define RL_TOOLS_DISABLE_EVALUATION
 #include </home/jonas/rl_tools/src/rl/environments/pendulum/sac/arm/training.h>
 #else

@@ -10,7 +10,7 @@ namespace rl_tools::devices{
     namespace dummy{
         struct Base{
             static constexpr DeviceId DEVICE_ID = DeviceId::Dummy;
-            using index_t = unsigned;
+            using index_t = unsigned long long;
             static constexpr index_t MAX_INDEX = -1;
         };
     }
@@ -20,7 +20,7 @@ namespace rl_tools::devices{
         };
     }
     namespace random{
-        struct Dummy: dummy::Base{
+        struct Dummy:devices::random::Generic<devices::math::Dummy>, dummy::Base{
             static constexpr Type TYPE = Type::random;
             using State = unsigned;
         };

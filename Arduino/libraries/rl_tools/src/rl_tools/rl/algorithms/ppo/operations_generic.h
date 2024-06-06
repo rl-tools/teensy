@@ -42,7 +42,8 @@ namespace rl_tools{
 #endif
         init_weights(device, ppo.actor, rng);
         reset_optimizer_state(device, actor_optimizer, ppo.actor);
-        set_all(device, ppo.actor.log_std.parameters, math::log(device.math, SPEC::PARAMETERS::INITIAL_ACTION_STD));
+        auto& last_layer = get_layer<num_layers(decltype(ppo.actor)())-1>(device, ppo.actor);
+        set_all(device, last_layer.log_std.parameters, math::log(device.math, SPEC::PARAMETERS::INITIAL_ACTION_STD));
         init_weights(device, ppo.critic, rng);
         reset_optimizer_state(device, critic_optimizer, ppo.critic);
 //        set_all(device, ppo.actor.input_layer.biases.parameters, 0);
@@ -65,14 +66,13 @@ namespace rl_tools{
                 bool terminated = get(dataset.terminated, pos, 0);
                 bool truncated = get(dataset.truncated, pos, 0);
 #ifdef RL_TOOLS_DEBUG_RL_ALGORITHMS_PPO_GAE_CHECK_TERMINATED_TRUNCATED
-                utils::assert_exit(device, !terminated || terminated && truncated, "terminationn should imply truncation");
+                utils::assert_exit(device, !terminated || (terminated && truncated), "terminationn should imply truncation");
 #endif
                 T current_step_value = get(dataset.values, pos, 0);
-//                T next_step_value = terminated || truncated ? 0 : previous_value;
-                T next_step_value = terminated && !PPO_PARAMETERS::IGNORE_TERMINATION ? 0 : previous_value;
+                bool terminated_actual = terminated && !PPO_PARAMETERS::IGNORE_TERMINATION;
+                T next_step_value = terminated_actual ? 0 : previous_value;
 
                 T td_error = get(dataset.rewards, pos, 0) + PPO_PARAMETERS::GAMMA * next_step_value - current_step_value;
-//                previous_advantage = terminated || truncated ? 0 : previous_advantage;
                 if(truncated){
                     if(!terminated){ // e.g. time limited or random truncation
                         td_error = 0;
@@ -96,28 +96,26 @@ namespace rl_tools{
         using TI = typename PPO_SPEC::TI;
         static_assert(utils::typing::is_same_v<typename PPO_SPEC::ENVIRONMENT, typename OPR_SPEC::ENVIRONMENT>, "environment mismatch");
         using DATASET = rl::components::on_policy_runner::Dataset<rl::components::on_policy_runner::DatasetSpecification<OPR_SPEC, STEPS_PER_ENV>>;
-        static_assert(DATASET::STEPS_TOTAL > 0);
+        static_assert(DATASET::STEPS_TOTAL > 1);
         constexpr TI N_EPOCHS = PPO_SPEC::PARAMETERS::N_EPOCHS;
         constexpr TI BATCH_SIZE = PPO_SPEC::BATCH_SIZE;
         constexpr TI N_BATCHES = DATASET::STEPS_TOTAL/BATCH_SIZE;
         static_assert(N_BATCHES > 0);
         constexpr TI ACTION_DIM = OPR_SPEC::ENVIRONMENT::ACTION_DIM;
         constexpr TI OBSERVATION_DIM = OPR_SPEC::ENVIRONMENT::OBSERVATION_DIM;
-        constexpr bool NORMALIZE_OBSERVATIONS = PPO_SPEC::PARAMETERS::NORMALIZE_OBSERVATIONS;
-        auto all_observations = NORMALIZE_OBSERVATIONS ? dataset.all_observations_normalized : dataset.all_observations;
-        auto observations = NORMALIZE_OBSERVATIONS ? dataset.observations_normalized : dataset.observations;
         // batch needs observations, original log-probs, advantages
         T policy_kl_divergence = 0; // KL( current || old ) todo: make hyperparameter that swaps the order
         if(PPO_SPEC::PARAMETERS::ADAPTIVE_LEARNING_RATE) {
-            copy(device, device, ppo.actor.log_std.parameters, ppo_buffers.rollout_log_std);
+            auto& last_layer = get_layer<num_layers(decltype(ppo.actor)())-1>(device, ppo.actor);
+            copy(device, device, last_layer.log_std.parameters, ppo_buffers.rollout_log_std);
         }
         for(TI epoch_i = 0; epoch_i < N_EPOCHS; epoch_i++){
             // shuffling
             for(TI dataset_i = 0; dataset_i < DATASET::STEPS_TOTAL; dataset_i++){
                 TI sample_index = random::uniform_int_distribution(typename DEVICE::SPEC::RANDOM(), dataset_i, DATASET::STEPS_TOTAL-1, rng);
                 {
-                    auto target_row = row(device, observations, dataset_i);
-                    auto source_row = row(device, observations, sample_index);
+                    auto target_row = row(device, dataset.observations, dataset_i);
+                    auto source_row = row(device, dataset.observations, sample_index);
                     swap(device, target_row, source_row);
                 }
                 if(PPO_SPEC::PARAMETERS::ADAPTIVE_LEARNING_RATE){
@@ -140,7 +138,7 @@ namespace rl_tools{
                 zero_gradient(device, ppo.actor); // has to be reset before accumulating the action-log-std gradient
 
                 auto batch_offset = batch_i * BATCH_SIZE;
-                auto batch_observations     = view(device, observations            , matrix::ViewSpec<BATCH_SIZE, OBSERVATION_DIM>(), batch_offset, 0);
+                auto batch_observations     = view(device, dataset.observations    , matrix::ViewSpec<BATCH_SIZE, OBSERVATION_DIM>(), batch_offset, 0);
                 auto batch_actions_mean     = view(device, dataset.actions_mean    , matrix::ViewSpec<BATCH_SIZE, ACTION_DIM     >(), batch_offset, 0);
                 auto batch_actions          = view(device, dataset.actions         , matrix::ViewSpec<BATCH_SIZE, ACTION_DIM     >(), batch_offset, 0);
                 auto batch_action_log_probs = view(device, dataset.action_log_probs, matrix::ViewSpec<BATCH_SIZE, 1              >(), batch_offset, 0);
@@ -157,12 +155,12 @@ namespace rl_tools{
                     }
                     advantage_mean /= BATCH_SIZE;
                     advantage_std /= BATCH_SIZE;
-                    advantage_std = math::sqrt(device.math, advantage_std - advantage_mean * advantage_mean);
+                    advantage_std = math::sqrt(device.math, math::max(device.math, (T)0, advantage_std - advantage_mean * advantage_mean));
                 }
 //                add_scalar(device, device.logger, "ppo/advantage/mean", advantage_mean);
 //                add_scalar(device, device.logger, "ppo/advantage/std", advantage_std);
 
-                forward(device, ppo.actor, batch_observations, ppo_buffers.current_batch_actions);
+                forward(device, ppo.actor, batch_observations, ppo_buffers.current_batch_actions, rng);
 //                auto abs_diff = abs_diff(device, batch_actions, dataset.actions);
 
                 for(TI batch_step_i = 0; batch_step_i < BATCH_SIZE; batch_step_i++){
@@ -171,7 +169,8 @@ namespace rl_tools{
 
                         T current_action = get(ppo_buffers.current_batch_actions, batch_step_i, action_i);
                         T rollout_action = get(batch_actions, batch_step_i, action_i);
-                        T current_action_log_std = get(ppo.actor.log_std.parameters, 0, action_i);
+                        auto& last_layer = get_layer<num_layers(decltype(ppo.actor)())-1>(device, ppo.actor);
+                        T current_action_log_std = get(last_layer.log_std.parameters, 0, action_i);
                         T current_action_std = math::exp(device.math, current_action_log_std);
                         if(PPO_SPEC::PARAMETERS::ADAPTIVE_LEARNING_RATE){
                             T rollout_action_log_std = get(ppo_buffers.rollout_log_std, 0, action_i);
@@ -186,15 +185,20 @@ namespace rl_tools{
                             batch_policy_kl_divergence += kl;
                         }
 
-                        T action_diff_by_action_std = (current_action - rollout_action) / current_action_std;
-                        action_log_prob += -0.5 * action_diff_by_action_std * action_diff_by_action_std - current_action_log_std - 0.5 * math::log(device.math, 2 * math::PI<T>);
-                        set(ppo_buffers.d_action_log_prob_d_action, batch_step_i, action_i, - action_diff_by_action_std / current_action_std);
+//                        T action_diff_by_action_std = (current_action - rollout_action) / current_action_std;
+//                        action_log_prob += -0.5 * action_diff_by_action_std * action_diff_by_action_std - current_action_log_std - 0.5 * math::log(device.math, 2 * math::PI<T>);
+                        // probability of the old actions under the new policy
+                        action_log_prob += random::normal_distribution::log_prob(device.random, current_action, current_action_log_std, rollout_action);
+//                        set(ppo_buffers.d_action_log_prob_d_action, batch_step_i, action_i, - action_diff_by_action_std / current_action_std);
+                        set(ppo_buffers.d_action_log_prob_d_action, batch_step_i, action_i, random::normal_distribution::d_log_prob_d_mean(device.random, current_action, current_action_log_std, rollout_action));
+
                         T current_entropy = current_action_log_std + math::log(device.math, 2 * math::PI<T>)/(T)2 + (T)1/(T)2;
                         T current_entropy_loss = -(T)1/BATCH_SIZE * PPO_SPEC::PARAMETERS::ACTION_ENTROPY_COEFFICIENT * current_entropy;
                         // todo: think about possible implementation detail: clipping entropy bonus as well (because it changes the distribution)
                         if(PPO_SPEC::PARAMETERS::LEARN_ACTION_STD){
                             T d_entropy_loss_d_current_action_log_std = -(T)1/BATCH_SIZE * PPO_SPEC::PARAMETERS::ACTION_ENTROPY_COEFFICIENT;
-                            increment(ppo.actor.log_std.gradient, 0, action_i, d_entropy_loss_d_current_action_log_std);
+                            auto& last_layer = get_layer<num_layers(decltype(ppo.actor)())-1>(device, ppo.actor);
+                            increment(last_layer.log_std.gradient, 0, action_i, d_entropy_loss_d_current_action_log_std);
 //                          derivation: d_current_action_log_prob_d_action_log_std
 //                          d_current_action_log_prob_d_action_std =  (-action_diff_by_action_std) * (-action_diff_by_action_std)      / action_std - 1 / action_std)
 //                          d_current_action_log_prob_d_action_std = ((-action_diff_by_action_std) * (-action_diff_by_action_std) - 1) / action_std)
@@ -202,8 +206,9 @@ namespace rl_tools{
 //                          d_current_action_log_prob_d_action_log_std = (action_diff_by_action_std * action_diff_by_action_std - 1) / action_std * exp(action_log_std)
 //                          d_current_action_log_prob_d_action_log_std = (action_diff_by_action_std * action_diff_by_action_std - 1) / action_std * action_std
 //                          d_current_action_log_prob_d_action_log_std =  action_diff_by_action_std * action_diff_by_action_std - 1
-                            T d_current_action_log_prob_d_action_log_std = action_diff_by_action_std * action_diff_by_action_std - 1;
-                            set(ppo_buffers.d_action_log_prob_d_action_log_std, batch_step_i, action_i, d_current_action_log_prob_d_action_log_std);
+//                            T d_current_action_log_prob_d_action_log_std = action_diff_by_action_std * action_diff_by_action_std - 1;
+                            T d_action_log_prob_d_current_action_log_std = random::normal_distribution::d_log_prob_d_log_std(device.random, current_action, current_action_log_std, rollout_action);
+                            set(ppo_buffers.d_action_log_prob_d_action_log_std, batch_step_i, action_i, d_action_log_prob_d_current_action_log_std);
                         }
                     }
                     T rollout_action_log_prob = get(batch_action_log_probs, batch_step_i, 0);
@@ -215,21 +220,29 @@ namespace rl_tools{
                     T ratio = math::exp(device.math, log_ratio);
                     // todo: test relative clipping (clipping in log space makes more sense thatn clipping in exp space)
                     T clipped_ratio = math::clamp(device.math, ratio, 1 - PPO_SPEC::PARAMETERS::EPSILON_CLIP, 1 + PPO_SPEC::PARAMETERS::EPSILON_CLIP);
+                    bool clipped = ratio != clipped_ratio;
                     T normal_advantage = ratio * advantage;
                     T clipped_advantage = clipped_ratio * advantage;
                     T slippage = 0.0;
                     bool ratio_min_switch = normal_advantage - clipped_advantage <= slippage;
-                    T clipped_surrogate = ratio_min_switch ? normal_advantage : clipped_advantage;
+                    T pessimistic_surrogate = ratio_min_switch ? normal_advantage : clipped_advantage;
 
-                    T d_loss_d_clipped_surrogate = -(T)1/BATCH_SIZE;
-                    T d_clipped_surrogate_d_ratio = ratio_min_switch ? advantage : 0;
+                    T d_loss_d_pessimistic_surrogate = -(T)1/BATCH_SIZE;
+                    T d_pessimistic_surrogate_d_normal_advantage = ratio_min_switch ? 1 : 0;
+                    T d_pessimistic_surrogate_d_clipped_advantage = ratio_min_switch ? 0 : 1;
+                    T d_normal_advantage_d_ratio = advantage;
+                    T d_clipped_advantage_d_clipped_ratio = advantage;
+                    T d_clipped_ratio_d_ratio = clipped ? 0 : 1;
+                    T d_pessimistic_surrogate_d_ratio = d_pessimistic_surrogate_d_normal_advantage * d_normal_advantage_d_ratio + d_pessimistic_surrogate_d_clipped_advantage * d_clipped_advantage_d_clipped_ratio * d_clipped_ratio_d_ratio;
+                    T d_loss_d_ratio = d_loss_d_pessimistic_surrogate * d_pessimistic_surrogate_d_ratio;
                     T d_ratio_d_action_log_prob = ratio;
-                    T d_loss_d_action_log_prob = d_loss_d_clipped_surrogate * d_clipped_surrogate_d_ratio * d_ratio_d_action_log_prob;
+                    T d_loss_d_action_log_prob = d_loss_d_ratio * d_ratio_d_action_log_prob;
                     for(TI action_i = 0; action_i < ACTION_DIM; action_i++){
                         multiply(ppo_buffers.d_action_log_prob_d_action, batch_step_i, action_i, d_loss_d_action_log_prob);
                         if(PPO_SPEC::PARAMETERS::LEARN_ACTION_STD){
                             T current_d_action_log_prob_d_action_log_std = get(ppo_buffers.d_action_log_prob_d_action_log_std, batch_step_i, action_i);
-                            increment(ppo.actor.log_std.gradient, 0, action_i, d_loss_d_action_log_prob * current_d_action_log_prob_d_action_log_std);
+                            auto& last_layer = get_layer<num_layers(decltype(ppo.actor)())-1>(device, ppo.actor);
+                            increment(last_layer.log_std.gradient, 0, action_i, d_loss_d_action_log_prob * current_d_action_log_prob_d_action_log_std);
                         }
                     }
                 }
@@ -245,8 +258,8 @@ namespace rl_tools{
                 backward(device, ppo.actor, batch_observations, ppo_buffers.d_action_log_prob_d_action, actor_buffers);
 //                forward_backward_mse(device, ppo.critic, batch_observations, batch_target_values, critic_buffers);
                 {
-                    forward(device, ppo.critic, batch_observations);
-                    nn::loss_functions::mse::gradient(device, output(ppo.critic), batch_target_values, ppo_buffers.d_critic_output);
+                    forward(device, ppo.critic, batch_observations, rng);
+                    nn::loss_functions::mse::gradient(device, output(ppo.critic), batch_target_values, ppo_buffers.d_critic_output, 0.5);
                     backward(device, ppo.critic, batch_observations, ppo_buffers.d_critic_output, critic_buffers);
                 }
                 T critic_loss = nn::loss_functions::mse::evaluate(device, output(ppo.critic), batch_target_values);

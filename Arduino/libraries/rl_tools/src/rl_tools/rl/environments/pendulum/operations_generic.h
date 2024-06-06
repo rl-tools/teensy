@@ -24,11 +24,6 @@ namespace rl_tools::rl::environments::pendulum {
 RL_TOOLS_NAMESPACE_WRAPPER_END
 RL_TOOLS_NAMESPACE_WRAPPER_START
 namespace rl_tools{
-    template<typename DEVICE, typename SPEC>
-    RL_TOOLS_FUNCTION_PLACEMENT static void malloc(DEVICE& device, const rl::environments::Pendulum<SPEC>& env){ }
-    template<typename DEVICE, typename SPEC>
-    RL_TOOLS_FUNCTION_PLACEMENT static void init(DEVICE& device, const rl::environments::Pendulum<SPEC>& env, bool ui = false){ }
-
     template<typename DEVICE, typename SPEC, typename RNG>
     RL_TOOLS_FUNCTION_PLACEMENT static void sample_initial_state(DEVICE& device, const rl::environments::Pendulum<SPEC>& env, typename rl::environments::Pendulum<SPEC>::State& state, RNG& rng){
         state.theta     = random::uniform_real_distribution(typename DEVICE::SPEC::RANDOM(), SPEC::PARAMETERS::initial_state_min_angle, SPEC::PARAMETERS::initial_state_max_angle, rng);
@@ -46,7 +41,7 @@ namespace rl_tools{
         using namespace rl::environments::pendulum;
         typedef typename SPEC::T T;
         typedef typename SPEC::PARAMETERS PARAMS;
-        T u_normalised = get(action, 0, 0);
+        T u_normalised = math::clamp(device.math, get(action, 0, 0), (T)-1, (T)1);
         T u = PARAMS::max_torque * u_normalised;
         T g = PARAMS::g;
         T m = PARAMS::m;

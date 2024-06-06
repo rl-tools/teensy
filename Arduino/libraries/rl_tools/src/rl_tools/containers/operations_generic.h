@@ -23,12 +23,12 @@ namespace rl_tools{
     template<typename DEVICE, typename SPEC>
     void malloc(DEVICE& device, MatrixStatic<SPEC>& matrix){
 #ifdef RL_TOOLS_DEBUG_CONTAINER_CHECK_MALLOC
-        utils::assert_exit(device, matrix._data == nullptr, "Matrix is already allocated");
+        utils::assert_exit(device, matrix._data == nullptr, "Trying to malloc a MatrixStatic. Matrix is already allocated (stack)");
 #endif
 //        matrix._data = (typename SPEC::T*)&matrix._data_memory[0];
 #ifdef RL_TOOLS_DEBUG_CONTAINER_MALLOC_INIT_NAN
         for(typename SPEC::TI i = 0; i < SPEC::SIZE; i++){
-            if constexpr(std::is_convertible<typename SPEC::T, float>::value){
+            if constexpr(utils::typing::is_same_v<typename SPEC::T, float> || utils::typing::is_same_v<typename SPEC::T, double>){
                 matrix._data[i] = math::nan<typename SPEC::T>(device.math);
             }
         }
@@ -39,22 +39,42 @@ namespace rl_tools{
         // free is a no-op for statically allocated matrices
     }
 
-#ifndef RL_TOOLS_DISABLE_DYNAMIC_MEMORY_ALLOCATIONS
+#if !defined(RL_TOOLS_DISABLE_DYNAMIC_MEMORY_ALLOCATIONS)
     template<typename DEVICE, typename SPEC>
     void malloc(DEVICE& device, MatrixDynamic<SPEC>& matrix){
+        using TI = typename DEVICE::index_t;
 #ifdef RL_TOOLS_DEBUG_CONTAINER_CHECK_MALLOC
         utils::assert_exit(device, matrix._data == nullptr, "Matrix is already allocated");
 #endif
-#ifdef RL_TOOLS_CONTAINERS_USE_MALLOC
-        matrix._data = (typename SPEC::T*) ::malloc(SPEC::SIZE_BYTES);
+#ifndef RL_TOOLS_DISABLE_ALIGNED_MEMORY_ALLOCATIONS
+        static constexpr TI POINTER_SIZE = sizeof(void*);
+        static constexpr TI BYTE_ALIGNMENT = 64;
+        static constexpr TI ALIGNED_SIZE = SPEC::SIZE_BYTES + BYTE_ALIGNMENT + POINTER_SIZE;
 #else
-        matrix._data = (typename SPEC::T*)new char[SPEC::SIZE_BYTES];
+        static constexpr TI ALIGNED_SIZE = SPEC::SIZE_BYTES;
 #endif
+#ifdef RL_TOOLS_CONTAINERS_USE_MALLOC
+        void* original_pointer = ::malloc(ALIGNED_SIZE);
+#else
+        char* original_pointer = new char[ALIGNED_SIZE];
+#endif
+#ifndef RL_TOOLS_DISABLE_ALIGNED_MEMORY_ALLOCATIONS
+        char* byte_pointer = static_cast<char*>(original_pointer) + POINTER_SIZE;
+        static_assert(sizeof(TI) >= sizeof(void*), "TI must be at least as large as a pointer");
+        char* aligned_byte_pointer = reinterpret_cast<char*>((reinterpret_cast<TI>(byte_pointer) + BYTE_ALIGNMENT - 1) & ~(BYTE_ALIGNMENT - 1));
+        char* original_pointer_storage = aligned_byte_pointer - POINTER_SIZE;
+        *((decltype(original_pointer)*)original_pointer_storage) = original_pointer;
+        matrix._data = reinterpret_cast<typename SPEC::T*>(aligned_byte_pointer);
+#else
+        matrix._data = reinterpret_cast<typename SPEC::T*>(original_pointer);
+#endif
+
+
         count_malloc(device, SPEC::SIZE_BYTES);
 
 #ifdef RL_TOOLS_DEBUG_CONTAINER_MALLOC_INIT_NAN
         for(typename SPEC::TI i = 0; i < SPEC::SIZE; i++){
-            if constexpr(std::is_convertible<typename SPEC::T, float>::value){
+            if constexpr(utils::typing::is_same_v<typename SPEC::T, float> || utils::typing::is_same_v<typename SPEC::T, double>){
                 matrix._data[i] = math::nan<typename SPEC::T>(device.math);
             }
         }
@@ -62,13 +82,27 @@ namespace rl_tools{
     }
     template<typename DEVICE, typename SPEC>
     void free(DEVICE& device, MatrixDynamic<SPEC>& matrix){
+        using TI = typename DEVICE::index_t;
 #ifdef RL_TOOLS_DEBUG_CONTAINER_CHECK_MALLOC
         utils::assert_exit(device, matrix._data != nullptr, "Matrix has not been allocated");
 #endif
-#ifdef RL_TOOLS_CONTAINERS_USE_MALLOC
-        ::free(matrix._data);
+#ifndef RL_TOOLS_DISABLE_ALIGNED_MEMORY_ALLOCATIONS
+        char* aligned_byte_pointer = reinterpret_cast<char*>(matrix._data);
+        static constexpr TI POINTER_SIZE = sizeof(void*);
+        char* original_pointer_storage = aligned_byte_pointer - POINTER_SIZE;
+    #ifdef RL_TOOLS_CONTAINERS_USE_MALLOC
+            void* original_pointer = *((void**)original_pointer_storage);
+            ::free(original_pointer);
+    #else
+            char* original_pointer = *((char**)original_pointer_storage);
+            delete original_pointer;
+    #endif
 #else
-        delete matrix._data;
+        #ifdef RL_TOOLS_CONTAINERS_USE_MALLOC
+            ::free(matrix._data);
+        #else
+            delete matrix._data;
+        #endif
 #endif
         matrix._data = nullptr;
     }
@@ -413,12 +447,12 @@ namespace rl_tools{
         return sum_of_squares(device, m) / (SPEC::ROWS * SPEC::COLS);
     }
     template<typename DEVICE, typename SPEC>
-    [[deprecated("Note: math::isnan might be optimized out by the compiler when using e.g. fast-math")]]
+//    [[deprecated("Note: math::isnan might be optimized out by the compiler when using e.g. fast-math")]]
     bool is_nan(DEVICE& device, const Matrix<SPEC>& m){
         return reduce_unary<DEVICE, SPEC, bool, containers::vectorization::operators::is_nan<typename DEVICE::SPEC::MATH, typename SPEC::T>>(device, m, false);
     }
     template<typename DEVICE, typename SPEC>
-    [[deprecated("Note: math::isfinite might be optimized out by the compiler when using e.g. fast-math")]]
+//    [[deprecated("Note: math::isfinite might be optimized out by the compiler when using e.g. fast-math")]]
     bool is_finite(DEVICE& device, const Matrix<SPEC>& m){
         return reduce_unary<DEVICE, SPEC, bool, containers::vectorization::operators::is_finite<typename DEVICE::SPEC::MATH, typename SPEC::T>>(device, m, true);
     }
@@ -540,8 +574,31 @@ namespace rl_tools{
         }
         return acc/(SPEC::ROWS * SPEC::COLS);
     }
+    template <typename DEVICE, typename SPEC, typename OUTPUT_SPEC_1, typename OUTPUT_SPEC_2>
+    void mean_std_colwise(DEVICE& device, rl_tools::Matrix<SPEC>& m, rl_tools::Matrix<OUTPUT_SPEC_1>& mean, rl_tools::Matrix<OUTPUT_SPEC_2>& std){
+        static_assert(SPEC::COLS == OUTPUT_SPEC_1::COLS);
+        static_assert(SPEC::COLS == OUTPUT_SPEC_2::COLS);
+        static_assert(SPEC::ROWS >= 2);
+        using T = typename SPEC::T;
+        for(typename DEVICE::index_t row_i = 0; row_i < SPEC::ROWS; row_i++){
+            for(typename DEVICE::index_t col_i = 0; col_i < SPEC::COLS; col_i++){
+                if(row_i == 0){
+                    set(mean, 0, col_i, 0);
+                    set(std, 0, col_i, 0);
+                }
+                T current_value = get(m, row_i, col_i);
+                increment(mean, 0, col_i, current_value);
+                increment(std, 0, col_i, current_value * current_value);
+            }
+        }
+        for(typename DEVICE::index_t col_i = 0; col_i < SPEC::COLS; col_i++){
+            set(mean, 0, col_i, get(mean, 0, col_i) / SPEC::ROWS);
+            set(std, 0, col_i, math::sqrt(device.math, get(std, 0, col_i) / SPEC::ROWS - get(mean, 0, col_i) * get(mean, 0, col_i)));
+        }
+    }
     template <typename DEVICE, typename SPEC>
     typename SPEC::T std(DEVICE& device, rl_tools::Matrix<SPEC>& m){
+        static_assert(SPEC::ROWS * SPEC::COLS > 1);
         using T = typename SPEC::T;
         T acc = 0;
         T avg = mean(device, m);
@@ -551,7 +608,7 @@ namespace rl_tools{
                 acc += diff * diff;
             }
         }
-        return math::sqrt(device.math, acc/(SPEC::ROWS * SPEC::COLS));
+        return math::sqrt(device.math, acc/(SPEC::ROWS * SPEC::COLS - 1));
     }
 
     template <typename DEVICE, typename T, typename DEVICE::index_t DIM>
@@ -665,7 +722,6 @@ namespace rl_tools{
         using T = typename SPEC_INPUT::T;
         using TI = typename DEVICE::index_t;
         MatrixStatic<matrix::Specification<TI, TI, 1, 1>> output;
-        malloc(device, output);
         argmax_row_wise(device, input, output);
         auto result = get(output, 0, 0);
         free(device, output);
@@ -705,7 +761,6 @@ namespace rl_tools{
         using T = typename SPEC_INPUT::T;
         using TI = typename DEVICE::index_t;
         MatrixStatic<matrix::Specification<TI, TI, 1, 1>> output;
-        malloc(device, output);
         argmax_col_wise(device, input, output);
         auto result = get(output, 0, 0);
         free(device, output);

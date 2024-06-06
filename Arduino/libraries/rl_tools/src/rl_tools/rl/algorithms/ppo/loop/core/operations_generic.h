@@ -3,7 +3,11 @@
 #pragma once
 #define RL_TOOLS_RL_ALGORITHMS_PPO_LOOP_CORE_OPERATIONS_GENERIC_H
 
-#include "../../../../../rl/algorithms/sac/operations_generic.h"
+#include "../../../../../nn/optimizers/adam/instance/operations_generic.h"
+#include "../../../../../nn/layers/standardize/operations_generic.h"
+#include "../../../../../nn_models/mlp_unconditional_stddev/operations_generic.h"
+#include "../../../../../nn_models/sequential/operations_generic.h"
+#include "../../../../../nn/optimizers/adam/operations_generic.h"
 #include "../../../../../rl/algorithms/ppo/operations_generic.h"
 #include "../../../../../rl/components/on_policy_runner/operations_generic.h"
 #include "../../../../../rl/components/running_normalizer/operations_generic.h"
@@ -24,8 +28,6 @@ namespace rl_tools{
         malloc(device, ts.critic_buffers);
         malloc(device, ts.critic_buffers_gae);
         malloc(device, ts.observation_normalizer);
-        malloc(device, ts.observations_mean);
-        malloc(device, ts.observations_std);
         for(auto& env: ts.envs){
             malloc(device, env);
         }
@@ -38,20 +40,13 @@ namespace rl_tools{
 
         ts.rng = random::default_engine(typename DEVICE::SPEC::RANDOM(), seed);
 
-//        ts.actor_optimizer.parameters.alpha = 3e-4;
-//        ts.critic_optimizer.parameters.alpha = 3e-4 * 2;
         for(auto& env: ts.envs){
             rl_tools::init(device, env);
         }
 
         init(device, ts.on_policy_runner, ts.envs, ts.rng);
         init(device, ts.observation_normalizer);
-        set_all(device, ts.observations_mean, 0);
-        set_all(device, ts.observations_std, 1);
         init(device, ts.ppo, ts.actor_optimizer, ts.critic_optimizer, ts.rng);
-
-        init(device);
-        init(device, device.logger);
 
         ts.step = 0;
     }
@@ -63,7 +58,7 @@ namespace rl_tools{
         free(device, ts.on_policy_runner_dataset);
         free(device, ts.on_policy_runner);
         free(device, ts.actor_eval_buffers);
-        free(device, ts.actor_deterministic_eval_buffers);
+        free(device, ts.actor_deterministic_evaluation_buffers);
         free(device, ts.actor_buffers);
         free(device, ts.critic_buffers);
         free(device, ts.critic_buffers_gae);
@@ -76,13 +71,33 @@ namespace rl_tools{
     template <typename DEVICE, typename T_CONFIG>
     bool step(DEVICE& device, rl::algorithms::ppo::loop::core::State<T_CONFIG>& ts){
         using CONFIG = T_CONFIG;
+        using TI = typename DEVICE::index_t;
         set_step(device, device.logger, ts.step);
         bool finished = false;
-        collect(device, ts.on_policy_runner_dataset, ts.on_policy_runner, ts.ppo.actor, ts.actor_eval_buffers, ts.observation_normalizer.mean, ts.observation_normalizer.std, ts.rng);
-        auto on_policy_runner_dataset_all_observations = CONFIG::PPO_SPEC::PARAMETERS::NORMALIZE_OBSERVATIONS ? ts.on_policy_runner_dataset.all_observations_normalized : ts.on_policy_runner_dataset.all_observations;
-        evaluate(device, ts.ppo.critic, on_policy_runner_dataset_all_observations, ts.on_policy_runner_dataset.all_values, ts.critic_buffers_gae);
+
+        if(T_CONFIG::CORE_PARAMETERS::NORMALIZE_OBSERVATIONS && ts.step == 0){
+            for(TI observation_normalization_warmup_step_i = 0; observation_normalization_warmup_step_i < T_CONFIG::OBSERVATION_NORMALIZATION_WARMUP_STEPS; observation_normalization_warmup_step_i++) {
+                collect(device, ts.on_policy_runner_dataset, ts.on_policy_runner, ts.ppo.actor, ts.actor_eval_buffers, ts.rng);
+                update(device, ts.observation_normalizer, ts.on_policy_runner_dataset.observations);
+            }
+            std::cout << "Observation means: " << std::endl;
+            print(device, ts.observation_normalizer.mean);
+            std::cout << "Observation std: " << std::endl;
+            print(device, ts.observation_normalizer.std);
+            init(device, ts.on_policy_runner, ts.envs, ts.rng); // reinitializing the on_policy_runner to reset the episode counters
+            set_statistics(device, ts.ppo.actor.content, ts.observation_normalizer.mean, ts.observation_normalizer.std);
+            set_statistics(device, ts.ppo.critic.content, ts.observation_normalizer.mean, ts.observation_normalizer.std);
+        }
+        collect(device, ts.on_policy_runner_dataset, ts.on_policy_runner, ts.ppo.actor, ts.actor_eval_buffers, ts.rng);
+        if(T_CONFIG::CORE_PARAMETERS::NORMALIZE_OBSERVATIONS && T_CONFIG::CORE_PARAMETERS::NORMALIZE_OBSERVATIONS_CONTINUOUSLY){
+            update(device, ts.observation_normalizer, ts.on_policy_runner_dataset.all_observations);
+            set_statistics(device, ts.ppo.actor.content, ts.observation_normalizer.mean, ts.observation_normalizer.std);
+        }
+        evaluate(device, ts.ppo.critic, ts.on_policy_runner_dataset.all_observations, ts.on_policy_runner_dataset.all_values, ts.critic_buffers_gae, ts.rng);
         estimate_generalized_advantages(device, ts.on_policy_runner_dataset, typename CONFIG::PPO_TYPE::SPEC::PARAMETERS{});
         train(device, ts.ppo, ts.on_policy_runner_dataset, ts.actor_optimizer, ts.critic_optimizer, ts.ppo_buffers, ts.actor_buffers, ts.critic_buffers, ts.rng);
+
+//        log(device, device.logger, "log_std: ", get(ts.ppo.actor.log_std.parameters, 0, 0));
 
         ts.step++;
         if(ts.step > CONFIG::CORE_PARAMETERS::STEP_LIMIT){
@@ -94,7 +109,6 @@ namespace rl_tools{
     }
     template <typename DEVICE, typename PARAMETERS, typename utils::typing::enable_if<utils::typing::is_same_v<typename PARAMETERS::TAG, rl::algorithms::ppo::loop::core::ParametersTag>>::type* = nullptr>
     void log(DEVICE& device, PARAMETERS){
-//            static constexpr int N_WARMUP_STEPS = PPO_PARAMETERS::ACTOR_BATCH_SIZE;
         log(device, device.logger, "STEP_LIMIT: ", PARAMETERS::STEP_LIMIT);
         log(device, device.logger, "ACTOR_HIDDEN_DIM: ", PARAMETERS::ACTOR_HIDDEN_DIM);
         log(device, device.logger, "ACTOR_NUM_LAYERS: ", PARAMETERS::ACTOR_NUM_LAYERS);

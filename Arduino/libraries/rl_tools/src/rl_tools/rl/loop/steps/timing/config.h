@@ -14,6 +14,7 @@ namespace rl_tools::rl::loop::steps::timing{
         using State = State<CONFIG>;
     };
 }
+RL_TOOLS_NAMESPACE_WRAPPER_END
 #endif
 
 

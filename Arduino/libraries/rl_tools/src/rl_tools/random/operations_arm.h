@@ -16,6 +16,11 @@ namespace rl_tools::random{
     constexpr devices::random::ARM::index_t next_max(const devices::random::ARM& dev){
         return devices::random::ARM::MAX_INDEX;
     }
+    template <typename TI, typename RNG>
+    auto split(const devices::random::ARM& dev, TI split_id, RNG& rng){
+        // this operation should not alter the state of rng
+        return split(devices::random::Generic<devices::math::ARM>{}, split_id, rng);
+    }
     template<typename RNG>
     void next(const devices::random::ARM& dev, RNG& rng){
 //        static_assert(utils::typing::is_same_v<RNG, devices::random::ARM::index_t>);
@@ -47,23 +52,6 @@ namespace rl_tools::random{
         template<typename T, typename RNG>
         T sample(const devices::random::ARM& dev, T mean, T std, RNG& rng){
             return sample(devices::random::Generic<devices::math::ARM>{}, mean, std, rng);
-        }
-        template<typename DEVICE, typename T>
-        T log_prob(const devices::random::ARM& dev, T mean, T log_std, T value){
-            static_assert(utils::typing::is_same_v<T, float> || utils::typing::is_same_v<T, double>);
-            return log_prob(devices::random::Generic<devices::math::ARM>{}, mean, log_std, value);
-        }
-        template<typename DEVICE, typename T>
-        T d_log_prob_d_mean(const devices::random::ARM& dev, T mean, T log_std, T value){
-            return d_log_prob_d_mean(devices::random::Generic<devices::math::ARM>{}, mean, log_std, value);
-        }
-        template<typename DEVICE, typename T>
-        T d_log_prob_d_log_std(const devices::random::ARM& dev, T mean, T log_std, T value){
-            return d_log_prob_d_log_std(devices::random::Generic<devices::math::ARM>{}, mean, log_std, value);
-        }
-        template<typename DEVICE, typename T>
-        T d_log_prob_d_sample(const devices::random::ARM& dev, T mean, T log_std, T value){
-            return d_log_prob_d_sample(devices::random::Generic<devices::math::ARM>{}, mean, log_std, value);
         }
     }
 }

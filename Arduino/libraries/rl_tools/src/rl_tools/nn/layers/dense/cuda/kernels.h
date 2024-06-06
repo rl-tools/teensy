@@ -1,6 +1,6 @@
 template<typename DEV_SPEC, typename SPEC, typename devices::CUDA<DEV_SPEC>::index_t BATCH_SIZE, typename devices::CUDA<DEV_SPEC>::index_t BLOCK_SIZE>
 __global__ void
-evaluate_batch_kernel(devices::CUDA<DEV_SPEC>& device, const nn::layers::dense::Layer<SPEC> layer, const typename SPEC::T* input, typename SPEC::T* output) {
+evaluate_batch_kernel(devices::CUDA<DEV_SPEC>& device, const nn::layers::dense::LayerForward<SPEC> layer, const typename SPEC::T* input, typename SPEC::T* output) {
     using T = typename SPEC::T;
     using TI = typename devices::CUDA<DEV_SPEC>::index_t;
     constexpr TI INPUT_DIM = SPEC::INPUT_DIM;
@@ -97,7 +97,7 @@ evaluate_batch_kernel(devices::CUDA<DEV_SPEC>& device, const nn::layers::dense::
 //            constexpr typename devices::CUDA<DEV_SPEC>::index_t N_BLOCKS_OUTPUT = RL_TOOLS_DEVICES_CUDA_CEIL(BATCH_SIZE, BLOCKSIZE_OUTPUT);
 //            dim3 grid(N_BLOCKS_OUTPUT, N_BLOCKS_BATCH);
 //            dim3 block(BLOCKSIZE_OUTPUT, BLOCKSIZE_BATCH);
-//            nn::dense::cuda::evaluate_batch_kernel<DEV_SPEC, LAYER_SPEC, BATCH_SIZE, BLOCKSIZE_BATCH><<<grid, block>>>(device, layer, input.data, output.data);
+//            nn::dense::cuda::evaluate_batch_kernel<DEV_SPEC, LAYER_SPEC, BATCH_SIZE, BLOCKSIZE_BATCH><<<grid, block, 0, device.stream>>>(device, layer, input.data, output.data);
 ////          handle cuda error
 //            cudaDeviceSynchronize();
 //            auto err = cudaGetLastError();

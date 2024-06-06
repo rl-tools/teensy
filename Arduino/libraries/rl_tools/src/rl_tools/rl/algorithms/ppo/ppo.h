@@ -10,10 +10,10 @@ namespace rl_tools::rl::algorithms{
     namespace ppo{
         template<typename T, typename TI>
         struct DefaultParameters {
-            static constexpr T GAMMA = 0.9;
+            static constexpr T GAMMA = 0.99;
             static constexpr T LAMBDA = 0.95;
             static constexpr T EPSILON_CLIP = 0.2;
-            static constexpr T INITIAL_ACTION_STD = 0.5;
+            static constexpr T INITIAL_ACTION_STD = 0.5; // note this is NOT log(std) but actual std (log is applied at init)
             static constexpr bool LEARN_ACTION_STD = true;
             static constexpr T ACTION_ENTROPY_COEFFICIENT = 0.01;
             static constexpr T ADVANTAGE_EPSILON = 1e-8;
@@ -24,7 +24,6 @@ namespace rl_tools::rl::algorithms{
             static constexpr T ADAPTIVE_LEARNING_RATE_DECAY = (T)1/(T)1.5;
             static constexpr T ADAPTIVE_LEARNING_RATE_MIN = 1e-6;
             static constexpr T ADAPTIVE_LEARNING_RATE_MAX = 1e-2;
-            static constexpr bool NORMALIZE_OBSERVATIONS = false;
             static constexpr TI N_WARMUP_STEPS_CRITIC = 0;
             static constexpr TI N_WARMUP_STEPS_ACTOR = 0;
             static constexpr TI N_EPOCHS = 10;
@@ -46,11 +45,11 @@ namespace rl_tools::rl::algorithms{
             using ENVIRONMENT = T_ENVIRONMENT;
             using ACTOR_TYPE = T_ACTOR_TYPE;
             using CRITIC_TYPE = T_CRITIC_TYPE;
-            static constexpr TI BATCH_SIZE = ACTOR_TYPE::SPEC::BATCH_SIZE;
+            static constexpr TI BATCH_SIZE = ACTOR_TYPE::BATCH_SIZE;
             using PARAMETERS = T_PARAMETERS;
             using CONTAINER_TYPE_TAG = T_CONTAINER_TYPE_TAG;
 
-            static_assert(ACTOR_TYPE::SPEC::BATCH_SIZE == CRITIC_TYPE::SPEC::BATCH_SIZE);
+//            static_assert(ACTOR_TYPE::BATCH_SIZE == CRITIC_TYPE::BATCH_SIZE);
             static_assert(ACTOR_TYPE::INPUT_DIM == ENVIRONMENT::OBSERVATION_DIM);
             static_assert(CRITIC_TYPE::INPUT_DIM == ENVIRONMENT::OBSERVATION_DIM);
             static_assert(ACTOR_TYPE::OUTPUT_DIM == ENVIRONMENT::ACTION_DIM);

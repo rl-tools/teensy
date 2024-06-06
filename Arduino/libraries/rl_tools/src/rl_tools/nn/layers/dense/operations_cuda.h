@@ -15,7 +15,7 @@ namespace rl_tools{
     namespace nn::dense::cuda{
         template<typename DEV_SPEC, typename SPEC, typename OUTPUT_SPEC>
         __global__ void
-        set_biases_kernel(devices::CUDA<DEV_SPEC> device, const nn::layers::dense::Layer<SPEC> layer, Matrix<OUTPUT_SPEC> output) {
+        set_biases_kernel(devices::CUDA<DEV_SPEC> device, const nn::layers::dense::LayerForward<SPEC> layer, Matrix<OUTPUT_SPEC> output) {
             using T = typename SPEC::T;
             using TI = typename devices::CUDA<DEV_SPEC>::index_t;
             constexpr TI INPUT_DIM = SPEC::INPUT_DIM;
@@ -31,19 +31,19 @@ namespace rl_tools{
             }
         }
         template<typename DEV_SPEC, typename SPEC, typename OUTPUT_SPEC>
-        void set_biases(devices::CUDA<DEV_SPEC>& device, const nn::layers::dense::Layer<SPEC>& layer, Matrix<OUTPUT_SPEC>& output) {
+        void set_biases(devices::CUDA<DEV_SPEC>& device, const nn::layers::dense::LayerForward<SPEC>& layer, Matrix<OUTPUT_SPEC>& output) {
             using DEVICE = devices::CUDA<DEV_SPEC>;
             constexpr typename devices::CUDA<DEV_SPEC>::index_t BLOCKSIZE_BIAS = 32;
             constexpr typename devices::CUDA<DEV_SPEC>::index_t N_BLOCKS_BIAS = RL_TOOLS_DEVICES_CUDA_CEIL(SPEC::OUTPUT_DIM, BLOCKSIZE_BIAS);
             dim3 bias_grid(N_BLOCKS_BIAS);
             dim3 bias_block(BLOCKSIZE_BIAS);
             devices::cuda::TAG<DEVICE, true> tag_device{};
-            nn::dense::cuda::set_biases_kernel<<<bias_grid, bias_block>>>(tag_device, layer, output);
+            nn::dense::cuda::set_biases_kernel<<<bias_grid, bias_block, 0, device.stream>>>(tag_device, layer, output);
             check_status(device);
         }
         template<typename DEV_SPEC, typename SPEC, typename PRE_ACTIVATIONS_SPEC, typename OUTPUT_SPEC>
         __global__ void
-        activation_kernel(devices::CUDA<DEV_SPEC> device, const nn::layers::dense::Layer<SPEC>& layer, Matrix<PRE_ACTIVATIONS_SPEC> pre_activations, Matrix<OUTPUT_SPEC> output) {
+        activation_kernel(devices::CUDA<DEV_SPEC> device, const nn::layers::dense::LayerForward<SPEC>& layer, Matrix<PRE_ACTIVATIONS_SPEC> pre_activations, Matrix<OUTPUT_SPEC> output) {
             using T = typename SPEC::T;
             using TI = typename devices::CUDA<DEV_SPEC>::index_t;
             static_assert(PRE_ACTIVATIONS_SPEC::ROWS == OUTPUT_SPEC::ROWS);
@@ -58,7 +58,7 @@ namespace rl_tools{
             }
         }
         template<typename DEV_SPEC, typename SPEC, typename PRE_ACTIVATIONS_SPEC, typename OUTPUT_SPEC>
-        void activation(devices::CUDA<DEV_SPEC>& device, const nn::layers::dense::Layer<SPEC>& layer, Matrix<PRE_ACTIVATIONS_SPEC>& pre_activations, Matrix<OUTPUT_SPEC>& output){
+        void activation(devices::CUDA<DEV_SPEC>& device, const nn::layers::dense::LayerForward<SPEC>& layer, Matrix<PRE_ACTIVATIONS_SPEC>& pre_activations, Matrix<OUTPUT_SPEC>& output){
             using DEVICE = devices::CUDA<DEV_SPEC>;
             using T = typename SPEC::T;
             using TI = typename DEVICE::index_t;
@@ -71,12 +71,12 @@ namespace rl_tools{
             dim3 activation_grid(N_BLOCKS_ACTIVATION_OUTPUT, N_BLOCKS_ACTIVATION_BATCH);
             dim3 activation_block(BLOCKSIZE_ACTIVATION_OUTPUT, BLOCKSIZE_ACTIVATION_BATCH);
             devices::cuda::TAG<DEVICE, true> tag_device{};
-            nn::dense::cuda::activation_kernel<<<activation_grid, activation_block>>>(tag_device, layer, pre_activations, output);
+            nn::dense::cuda::activation_kernel<<<activation_grid, activation_block, 0, device.stream>>>(tag_device, layer, pre_activations, output);
             check_status(device);
         }
         template<typename DEV_SPEC, typename SPEC, typename PRE_ACTIVATIONS_SPEC, typename D_OUTPUT_SPEC, typename D_PRE_ACTIVATIONS_SPEC>
         __global__ void
-        d_activation_kernel(devices::CUDA<DEV_SPEC> device, const nn::layers::dense::Layer<SPEC> layer, Matrix<PRE_ACTIVATIONS_SPEC> pre_activations, Matrix<D_OUTPUT_SPEC> d_output, Matrix<D_PRE_ACTIVATIONS_SPEC> d_pre_activations) {
+        d_activation_kernel(devices::CUDA<DEV_SPEC> device, const nn::layers::dense::LayerForward<SPEC> layer, Matrix<PRE_ACTIVATIONS_SPEC> pre_activations, Matrix<D_OUTPUT_SPEC> d_output, Matrix<D_PRE_ACTIVATIONS_SPEC> d_pre_activations) {
             using T = typename SPEC::T;
             using TI = typename devices::CUDA<DEV_SPEC>::index_t;
             constexpr TI OUTPUT_DIM = SPEC::OUTPUT_DIM;
@@ -95,19 +95,19 @@ namespace rl_tools{
             }
         }
         template<typename DEV_SPEC, typename SPEC, typename PRE_ACTIVATIONS_SPEC, typename D_OUTPUT_SPEC, typename D_PRE_ACTIVATIONS_SPEC>
-        void d_activation(devices::CUDA<DEV_SPEC>& device, const nn::layers::dense::Layer<SPEC>& layer, Matrix<PRE_ACTIVATIONS_SPEC>& pre_activations, Matrix<D_OUTPUT_SPEC>& d_output, Matrix<D_PRE_ACTIVATIONS_SPEC>& d_pre_activations) {
+        void d_activation(devices::CUDA<DEV_SPEC>& device, const nn::layers::dense::LayerForward<SPEC>& layer, Matrix<PRE_ACTIVATIONS_SPEC>& pre_activations, Matrix<D_OUTPUT_SPEC>& d_output, Matrix<D_PRE_ACTIVATIONS_SPEC>& d_pre_activations) {
             using DEVICE = devices::CUDA<DEV_SPEC>;
             constexpr typename devices::CUDA<DEV_SPEC>::index_t BLOCKSIZE_ACTIVATION_OUTPUT = 32;
             constexpr typename devices::CUDA<DEV_SPEC>::index_t N_BLOCKS_ACTIVATION_OUTPUT = RL_TOOLS_DEVICES_CUDA_CEIL(SPEC::OUTPUT_DIM, BLOCKSIZE_ACTIVATION_OUTPUT);
             dim3 activation_grid(N_BLOCKS_ACTIVATION_OUTPUT);
             dim3 activation_block(BLOCKSIZE_ACTIVATION_OUTPUT);
             devices::cuda::TAG<DEVICE, true> tag_device{};
-            nn::dense::cuda::d_activation_kernel<<<activation_grid, activation_block>>>(tag_device, layer, pre_activations, d_output, d_pre_activations);
+            nn::dense::cuda::d_activation_kernel<<<activation_grid, activation_block, 0, device.stream>>>(tag_device, layer, pre_activations, d_output, d_pre_activations);
             check_status(device);
         }
         template<typename DEV_SPEC, typename SPEC, typename PRE_ACTIVATIONS_SPEC, typename D_OUTPUT_SPEC, typename D_BIASES_SPEC, typename D_PRE_ACTIVATIONS_SPEC>
         __global__ void
-        d_activation_accumulate_bias_gradient_kernel(devices::CUDA<DEV_SPEC> device, const nn::layers::dense::Layer<SPEC> layer, Matrix<PRE_ACTIVATIONS_SPEC> pre_activations, Matrix<D_OUTPUT_SPEC> d_output, Matrix<D_BIASES_SPEC> d_biases, Matrix<D_PRE_ACTIVATIONS_SPEC> d_pre_activations) {
+        d_activation_accumulate_bias_gradient_kernel(devices::CUDA<DEV_SPEC> device, const nn::layers::dense::LayerForward<SPEC> layer, Matrix<PRE_ACTIVATIONS_SPEC> pre_activations, Matrix<D_OUTPUT_SPEC> d_output, Matrix<D_BIASES_SPEC> d_biases, Matrix<D_PRE_ACTIVATIONS_SPEC> d_pre_activations) {
             using T = typename SPEC::T;
             using TI = typename devices::CUDA<DEV_SPEC>::index_t;
             constexpr TI OUTPUT_DIM = SPEC::OUTPUT_DIM;
@@ -128,19 +128,19 @@ namespace rl_tools{
             }
         }
         template<typename DEV_SPEC, typename SPEC, typename PRE_ACTIVATIONS_SPEC, typename D_OUTPUT_SPEC, typename D_BIASES_SPEC, typename D_PRE_ACTIVATIONS_SPEC>
-        void d_activation_accumulate_bias_gradient(devices::CUDA<DEV_SPEC>& device, const nn::layers::dense::Layer<SPEC>& layer, Matrix<PRE_ACTIVATIONS_SPEC>& pre_activations, Matrix<D_OUTPUT_SPEC>& d_output, Matrix<D_BIASES_SPEC>& d_biases, Matrix<D_PRE_ACTIVATIONS_SPEC>& d_pre_activations) {
+        void d_activation_accumulate_bias_gradient(devices::CUDA<DEV_SPEC>& device, const nn::layers::dense::LayerForward<SPEC>& layer, Matrix<PRE_ACTIVATIONS_SPEC>& pre_activations, Matrix<D_OUTPUT_SPEC>& d_output, Matrix<D_BIASES_SPEC>& d_biases, Matrix<D_PRE_ACTIVATIONS_SPEC>& d_pre_activations) {
             using DEVICE = devices::CUDA<DEV_SPEC>;
             constexpr typename devices::CUDA<DEV_SPEC>::index_t BLOCKSIZE_ACTIVATION_OUTPUT = 32;
             constexpr typename devices::CUDA<DEV_SPEC>::index_t N_BLOCKS_ACTIVATION_OUTPUT = RL_TOOLS_DEVICES_CUDA_CEIL(SPEC::OUTPUT_DIM, BLOCKSIZE_ACTIVATION_OUTPUT);
             dim3 activation_grid(N_BLOCKS_ACTIVATION_OUTPUT);
             dim3 activation_block(BLOCKSIZE_ACTIVATION_OUTPUT);
             devices::cuda::TAG<DEVICE, true> tag_device{};
-            nn::dense::cuda::d_activation_accumulate_bias_gradient_kernel<<<activation_grid, activation_block>>>(tag_device, layer, pre_activations, d_output, d_biases, d_pre_activations);
+            nn::dense::cuda::d_activation_accumulate_bias_gradient_kernel<<<activation_grid, activation_block, 0, device.stream>>>(tag_device, layer, pre_activations, d_output, d_biases, d_pre_activations);
             check_status(device);
         }
         template<typename DEV_SPEC, typename SPEC, typename PARAMETERS>
         __global__
-        void update_kernel(devices::CUDA<DEV_SPEC> device, nn::layers::dense::LayerBackwardGradient<SPEC> layer, nn::optimizers::Adam<PARAMETERS> optimizer) {
+        void update_kernel(devices::CUDA<DEV_SPEC> device, nn::layers::dense::LayerGradient<SPEC> layer, nn::optimizers::Adam<PARAMETERS> optimizer) {
             // fully fused adam update
             using DEVICE = devices::CUDA<DEV_SPEC>;
             using T = typename SPEC::T;
@@ -152,27 +152,35 @@ namespace rl_tools{
             TI output_i = blockIdx.y * blockDim.y + threadIdx.y;
             if(input_i < INPUT_DIM && output_i < OUTPUT_DIM){
                 if(input_i == 0){
+                    // bias
                     T d_bias = get(layer.biases.gradient, 0, output_i);
                     T d_bias_first_order_moment = optimizer.parameters.beta_1 * get(layer.biases.gradient_first_order_moment, 0, output_i) + (1 - optimizer.parameters.beta_1) * d_bias;
                     set(layer.biases.gradient_first_order_moment, 0, output_i, d_bias_first_order_moment);
                     T d_bias_second_order_moment = optimizer.parameters.beta_2 * get(layer.biases.gradient_second_order_moment, 0, output_i) + (1 - optimizer.parameters.beta_2) * d_bias * d_bias;
                     set(layer.biases.gradient_second_order_moment, 0, output_i, d_bias_second_order_moment);
-                    T bias_update = optimizer.parameters.alpha * optimizer.first_order_moment_bias_correction * d_bias_first_order_moment / (math::sqrt(typename DEVICE::SPEC::MATH_DEVICE_ACCURATE(), d_bias_second_order_moment * optimizer.second_order_moment_bias_correction) + optimizer.parameters.epsilon);
+                    T pre_sqrt_term = d_bias_second_order_moment * optimizer.second_order_moment_bias_correction;
+                    pre_sqrt_term = math::max(device.math, pre_sqrt_term, (T)optimizer.parameters.epsilon_sqrt);
+                    T bias_update = optimizer.parameters.alpha * optimizer.first_order_moment_bias_correction * d_bias_first_order_moment / (math::sqrt(typename DEVICE::SPEC::MATH_DEVICE_ACCURATE(), pre_sqrt_term) + optimizer.parameters.epsilon);
                     increment(layer.biases.parameters, 0, output_i, -bias_update);
                 }
-                T d_weight = get(layer.weights.gradient, output_i, input_i);
-                T d_weight_first_order_moment = optimizer.parameters.beta_1 * get(layer.weights.gradient_first_order_moment, output_i, input_i) + (1 - optimizer.parameters.beta_1) * d_weight;
-                set(layer.weights.gradient_first_order_moment, output_i, input_i, d_weight_first_order_moment);
-                T d_weight_second_order_moment = optimizer.parameters.beta_2 * get(layer.weights.gradient_second_order_moment, output_i, input_i) + (1 - optimizer.parameters.beta_2) * d_weight * d_weight;
-                set(layer.weights.gradient_second_order_moment, output_i, input_i, d_weight_second_order_moment);
-                T weight_update = optimizer.parameters.alpha * optimizer.first_order_moment_bias_correction * d_weight_first_order_moment / (math::sqrt(typename DEVICE::SPEC::MATH_DEVICE_ACCURATE(), d_weight_second_order_moment * optimizer.second_order_moment_bias_correction) + optimizer.parameters.epsilon);
-                increment(layer.weights.parameters, output_i, input_i, -weight_update);
+                {
+                    // weight
+                    T d_weight = get(layer.weights.gradient, output_i, input_i);
+                    T d_weight_first_order_moment = optimizer.parameters.beta_1 * get(layer.weights.gradient_first_order_moment, output_i, input_i) + (1 - optimizer.parameters.beta_1) * d_weight;
+                    set(layer.weights.gradient_first_order_moment, output_i, input_i, d_weight_first_order_moment);
+                    T d_weight_second_order_moment = optimizer.parameters.beta_2 * get(layer.weights.gradient_second_order_moment, output_i, input_i) + (1 - optimizer.parameters.beta_2) * d_weight * d_weight;
+                    set(layer.weights.gradient_second_order_moment, output_i, input_i, d_weight_second_order_moment);
+                    T pre_sqrt_term = d_weight_second_order_moment * optimizer.second_order_moment_bias_correction;
+                    pre_sqrt_term = math::max(device.math, pre_sqrt_term, (T)optimizer.parameters.epsilon_sqrt);
+                    T weight_update = optimizer.parameters.alpha * optimizer.first_order_moment_bias_correction * d_weight_first_order_moment / (math::sqrt(typename DEVICE::SPEC::MATH_DEVICE_ACCURATE(), pre_sqrt_term) + optimizer.parameters.epsilon);
+                    increment(layer.weights.parameters, output_i, input_i, -weight_update);
+                }
             }
         }
     }
 
-    template<typename DEV_SPEC, typename LAYER_SPEC, typename INPUT_SPEC, typename OUTPUT_SPEC>
-    void evaluate(devices::CUDA<DEV_SPEC>& device, const nn::layers::dense::Layer<LAYER_SPEC>& layer, const Matrix<INPUT_SPEC>& input, Matrix<OUTPUT_SPEC>& output){
+    template<typename DEV_SPEC, typename LAYER_SPEC, typename INPUT_SPEC, typename OUTPUT_SPEC, typename RNG>
+    void evaluate(devices::CUDA<DEV_SPEC>& device, const nn::layers::dense::LayerForward<LAYER_SPEC>& layer, const Matrix<INPUT_SPEC>& input, Matrix<OUTPUT_SPEC>& output, nn::layers::dense::Buffer&, RNG& rng){
         // Warning do not use the same buffer for input and output!
         static_assert(nn::layers::dense::check_input_output<LAYER_SPEC, INPUT_SPEC, OUTPUT_SPEC>);
         static_assert(INPUT_SPEC::COL_PITCH == 1);
@@ -207,8 +215,8 @@ namespace rl_tools{
         }
     }
 
-    template<typename DEV_SPEC, typename LAYER_SPEC, typename INPUT_SPEC, typename OUTPUT_SPEC>
-    void forward(devices::CUDA<DEV_SPEC>& device, nn::layers::dense::LayerBackward<LAYER_SPEC>& layer, const Matrix<INPUT_SPEC>& input, Matrix<OUTPUT_SPEC>& output) {
+    template<typename DEV_SPEC, typename LAYER_SPEC, typename INPUT_SPEC, typename OUTPUT_SPEC, typename RNG>
+    void forward(devices::CUDA<DEV_SPEC>& device, nn::layers::dense::LayerBackward<LAYER_SPEC>& layer, const Matrix<INPUT_SPEC>& input, Matrix<OUTPUT_SPEC>& output, RNG& rng) {
         // Warning do not use the same buffer for input and output!
         static_assert(nn::layers::dense::check_input_output<LAYER_SPEC, INPUT_SPEC, OUTPUT_SPEC>);
         static_assert(INPUT_SPEC::COL_PITCH == 1);
@@ -246,7 +254,7 @@ namespace rl_tools{
     }
 
     template<typename DEV_SPEC, typename LAYER_SPEC, typename D_OUTPUT_SPEC, typename D_INPUT_SPEC>
-    void backward_input_additional(devices::CUDA<DEV_SPEC>& device, nn::layers::dense::LayerBackwardGradient<LAYER_SPEC>& layer, Matrix<D_OUTPUT_SPEC>& d_output, Matrix<D_INPUT_SPEC>& d_input) {
+    void backward_input_additional(devices::CUDA<DEV_SPEC>& device, nn::layers::dense::LayerGradient<LAYER_SPEC>& layer, Matrix<D_OUTPUT_SPEC>& d_output, Matrix<D_INPUT_SPEC>& d_input) {
         static_assert(nn::layers::dense::check_input_output<LAYER_SPEC, D_INPUT_SPEC, D_OUTPUT_SPEC>);
         static_assert(D_OUTPUT_SPEC::COL_PITCH == 1);
         static_assert(D_INPUT_SPEC::COL_PITCH == 1);
@@ -282,7 +290,7 @@ namespace rl_tools{
         }
     }
     template<typename DEV_SPEC, typename LAYER_SPEC, typename INPUT_SPEC, typename D_OUTPUT_SPEC>
-    void backward_param(devices::CUDA<DEV_SPEC>& device, nn::layers::dense::LayerBackwardGradient<LAYER_SPEC>& layer, const Matrix<INPUT_SPEC>& input, Matrix<D_OUTPUT_SPEC>& d_output) {
+    void backward(devices::CUDA<DEV_SPEC>& device, nn::layers::dense::LayerGradient<LAYER_SPEC>& layer, const Matrix<INPUT_SPEC>& input, Matrix<D_OUTPUT_SPEC>& d_output, nn::layers::dense::Buffer&) {
         // Warning do not reuse d_output as d_output is used as a temporary buffer
         // todo: create sparate function that does not set d_input (to save cost on backward pass for the first layer)
         // todo: think about storing gradient in column major order to avoid iterating over the minor dimension
@@ -324,25 +332,25 @@ namespace rl_tools{
         }
     }
     template<typename DEV_SPEC, typename LAYER_SPEC, typename INPUT_SPEC, typename D_OUTPUT_SPEC, typename D_INPUT_SPEC>
-    void backward(devices::CUDA<DEV_SPEC>& device, nn::layers::dense::LayerBackwardGradient<LAYER_SPEC>& layer, const Matrix<INPUT_SPEC>& input, Matrix<D_OUTPUT_SPEC>& d_output, Matrix<D_INPUT_SPEC>& d_input) {
-        backward_param(device, layer, input, d_output);
+    void backward_full(devices::CUDA<DEV_SPEC>& device, nn::layers::dense::LayerGradient<LAYER_SPEC>& layer, const Matrix<INPUT_SPEC>& input, Matrix<D_OUTPUT_SPEC>& d_output, Matrix<D_INPUT_SPEC>& d_input, nn::layers::dense::Buffer& buffer) {
+        backward(device, layer, input, d_output, buffer);
         backward_input_additional(device, layer, d_output, d_input);
     }
     template<typename DEV_SPEC, typename LAYER_SPEC, typename D_OUTPUT_SPEC, typename D_INPUT_SPEC>
-    void backward_input(devices::CUDA<DEV_SPEC>& device, nn::layers::dense::LayerBackwardGradient<LAYER_SPEC>& layer, Matrix<D_OUTPUT_SPEC>& d_output, Matrix<D_INPUT_SPEC>& d_input) {
+    void backward_input(devices::CUDA<DEV_SPEC>& device, nn::layers::dense::LayerGradient<LAYER_SPEC>& layer, Matrix<D_OUTPUT_SPEC>& d_output, Matrix<D_INPUT_SPEC>& d_input, nn::layers::dense::Buffer&) {
         nn::dense::cuda::d_activation(device, layer, layer.pre_activations, d_output, d_output);
         backward_input_additional(device, layer, d_output, d_input);
     }
 
     template<typename DEV_SPEC, typename SPEC>
-    void zero_gradient(devices::CUDA<DEV_SPEC>& device, nn::layers::dense::LayerBackwardGradient<SPEC>& layer) {
+    void zero_gradient(devices::CUDA<DEV_SPEC>& device, nn::layers::dense::LayerGradient<SPEC>& layer) {
         cudaMemset(layer.weights.gradient._data, 0, decltype(layer.weights.gradient)::SPEC::SIZE_BYTES);
         check_status(device);
         cudaMemset(layer.biases.gradient._data, 0, decltype(layer.biases.gradient)::SPEC::SIZE_BYTES);
         check_status(device);
     }
     template<typename DEV_SPEC, typename SPEC, typename PARAMETERS>
-    void _reset_optimizer_state(devices::CUDA<DEV_SPEC>& device, nn::layers::dense::LayerBackwardGradient<SPEC>& layer, nn::optimizers::Adam<PARAMETERS>& optimizer) {
+    void _reset_optimizer_state(devices::CUDA<DEV_SPEC>& device, nn::layers::dense::LayerGradient<SPEC>& layer, nn::optimizers::Adam<PARAMETERS>& optimizer) {
         cudaMemset(layer.weights.gradient_first_order_moment._data, 0, decltype(layer.weights.gradient_first_order_moment)::SPEC::SIZE_BYTES);
         check_status(device);
         cudaMemset(layer.weights.gradient_second_order_moment._data, 0, decltype(layer.weights.gradient_second_order_moment)::SPEC::SIZE_BYTES);
@@ -354,7 +362,7 @@ namespace rl_tools{
     }
 
     template<typename DEV_SPEC, typename SPEC, typename PARAMETERS>
-    void update(devices::CUDA<DEV_SPEC>& device, nn::layers::dense::LayerBackwardGradient<SPEC>& layer, nn::optimizers::Adam<PARAMETERS>& optimizer) {
+    void update(devices::CUDA<DEV_SPEC>& device, nn::layers::dense::LayerGradient<SPEC>& layer, nn::optimizers::Adam<PARAMETERS>& optimizer) {
         using DEVICE = devices::CUDA<DEV_SPEC>;
         constexpr typename devices::CUDA<DEV_SPEC>::index_t BLOCKSIZE_ACTIVATION_OUTPUT = 32;
         constexpr typename devices::CUDA<DEV_SPEC>::index_t BLOCKSIZE_ACTIVATION_INPUT = 32;
@@ -363,7 +371,7 @@ namespace rl_tools{
         dim3 activation_grid(N_BLOCKS_ACTIVATION_INPUT, N_BLOCKS_ACTIVATION_OUTPUT);
         dim3 activation_block(BLOCKSIZE_ACTIVATION_INPUT, BLOCKSIZE_ACTIVATION_OUTPUT);
         devices::cuda::TAG<DEVICE, true> tag_device{};
-        nn::dense::cuda::update_kernel<<<activation_grid, activation_block>>>(tag_device, layer, optimizer);
+        nn::dense::cuda::update_kernel<<<activation_grid, activation_block, 0, device.stream>>>(tag_device, layer, optimizer);
         check_status(device);
     }
 }

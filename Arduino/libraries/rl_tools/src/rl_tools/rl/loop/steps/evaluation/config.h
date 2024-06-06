@@ -5,7 +5,7 @@
 
 #include "../../../../rl/components/off_policy_runner/operations_generic.h"
 
-#include "../../../../rl/utils/evaluation.h"
+#include "../../../../rl/environments/environments.h"
 
 #include "state.h"
 
@@ -22,7 +22,7 @@ namespace rl_tools::rl::loop::steps::evaluation{
         static constexpr TI EPISODE_STEP_LIMIT = NEXT::CORE_PARAMETERS::EPISODE_STEP_LIMIT;
     };
     struct ConfigTag{};
-    template<typename T_NEXT, typename T_PARAMETERS = Parameters<typename T_NEXT::T, typename T_NEXT::TI, T_NEXT>, typename T_UI = bool>
+    template<typename T_NEXT, typename T_PARAMETERS = Parameters<typename T_NEXT::T, typename T_NEXT::TI, T_NEXT>, typename T_UI = environments::DummyUI>
     struct Config: T_NEXT {
         using TAG = ConfigTag;
         using NEXT = T_NEXT;
@@ -30,6 +30,8 @@ namespace rl_tools::rl::loop::steps::evaluation{
         using UI = T_UI;
         using T = typename NEXT::T;
         using TI = typename NEXT::TI;
+        using EVALUATION_SPEC = rl::utils::evaluation::Specification<T, TI, typename NEXT::ENVIRONMENT_EVALUATION, EVALUATION_PARAMETERS::NUM_EVALUATION_EPISODES, EVALUATION_PARAMETERS::EPISODE_STEP_LIMIT>;
+        using EVALUATION_RESULT_SPEC = rl::utils::evaluation::Specification<T, TI, typename NEXT::ENVIRONMENT_EVALUATION, EVALUATION_PARAMETERS::NUM_EVALUATION_EPISODES, EVALUATION_PARAMETERS::EPISODE_STEP_LIMIT>;
         static_assert(EVALUATION_PARAMETERS::N_EVALUATIONS > 0);
         static_assert(EVALUATION_PARAMETERS::N_EVALUATIONS < 1000000);
         template <typename CONFIG>

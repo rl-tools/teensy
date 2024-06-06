@@ -38,7 +38,7 @@ namespace rl_tools{
         constexpr TI N_BLOCKS_COLS = RL_TOOLS_DEVICES_CUDA_CEIL(BATCH_SIZE, BLOCKSIZE_COLS);
         dim3 bias_grid(N_BLOCKS_COLS);
         dim3 bias_block(BLOCKSIZE_COLS);
-        target_action_noise_kernel<DEV_SPEC, SPEC, OUTPUT_SPEC, RNG><<<bias_grid, bias_block>>>(device, actor_critic, target_action_noise, rng);
+        target_action_noise_kernel<DEV_SPEC, SPEC, OUTPUT_SPEC, RNG><<<bias_grid, bias_block, 0, device.stream>>>(device, actor_critic, target_action_noise, rng);
         check_status(device);
     }
 
@@ -69,7 +69,7 @@ namespace rl_tools{
         constexpr TI N_BLOCKS_COLS = RL_TOOLS_DEVICES_CUDA_CEIL(BATCH_SIZE, BLOCKSIZE_COLS);
         dim3 bias_grid(N_BLOCKS_COLS);
         dim3 bias_block(BLOCKSIZE_COLS);
-        noisy_next_actions_kernel<DEV_SPEC, SPEC><<<bias_grid, bias_block>>>(device, training_buffers);
+        noisy_next_actions_kernel<DEV_SPEC, SPEC><<<bias_grid, bias_block, 0, device.stream>>>(device, training_buffers);
         check_status(device);
     }
 
@@ -95,7 +95,7 @@ namespace rl_tools{
         }
     }
     template <typename DEV_SPEC, typename OFF_POLICY_RUNNER_SPEC, auto BATCH_SIZE, typename SPEC>
-    void target_actions(devices::CUDA<DEV_SPEC>& device, const rl::algorithms::td3::ActorCritic<SPEC>& actor_critic, rl::components::off_policy_runner::Batch<rl::components::off_policy_runner::BatchSpecification<OFF_POLICY_RUNNER_SPEC, BATCH_SIZE>> batch, rl::algorithms::td3::CriticTrainingBuffers<SPEC> training_buffers) {
+    void target_action_values(devices::CUDA<DEV_SPEC>& device, const rl::algorithms::td3::ActorCritic<SPEC>& actor_critic, rl::components::off_policy_runner::Batch<rl::components::off_policy_runner::BatchSpecification<OFF_POLICY_RUNNER_SPEC, BATCH_SIZE>> batch, rl::algorithms::td3::CriticTrainingBuffers<SPEC> training_buffers) {
         using DEVICE = devices::CUDA<DEV_SPEC>;
         using T = typename SPEC::T;
         using TI = typename SPEC::TI;
@@ -103,7 +103,7 @@ namespace rl_tools{
         constexpr TI N_BLOCKS_COLS = RL_TOOLS_DEVICES_CUDA_CEIL(BATCH_SIZE, BLOCKSIZE_COLS);
         dim3 bias_grid(N_BLOCKS_COLS);
         dim3 bias_block(BLOCKSIZE_COLS);
-        target_actions_kernel<<<bias_grid, bias_block>>>(device, batch, training_buffers, actor_critic.gamma);
+        target_actions_kernel<<<bias_grid, bias_block, 0, device.stream>>>(device, batch, training_buffers, actor_critic.gamma);
         check_status(device);
     }
 }

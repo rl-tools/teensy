@@ -4,6 +4,7 @@
 #define RL_TOOLS_NN_MODELS_SEQUENTIAL_MODEL_H
 
 #include "../../utils/generic/typing.h"
+#include "../../nn/nn.h"
 
 RL_TOOLS_NAMESPACE_WRAPPER_START
 namespace rl_tools::nn_models::sequential{
@@ -12,6 +13,8 @@ namespace rl_tools::nn_models::sequential{
             static constexpr auto INPUT_DIM = 0;
             static constexpr auto BATCH_SIZE = 0;
         };
+        template <typename>
+        using CHANGE_CAPABILITY = OutputModule;
     };
 
     // Required fields on CONTENT:
@@ -45,7 +48,7 @@ namespace rl_tools::nn_models::sequential{
         if constexpr (utils::typing::is_same_v<typename SPEC::NEXT_MODULE, OutputModule>){
             return 0;
         } else {
-            auto max_downstream = find_max_hiddend_dim<TI, typename SPEC::NEXT_MODULE>();
+            TI max_downstream = find_max_hiddend_dim<TI, typename SPEC::NEXT_MODULE>();
             return max_downstream > current_max ? max_downstream : current_max;
         }
     }
@@ -89,13 +92,50 @@ namespace rl_tools::nn_models::sequential{
         static_assert(utils::typing::is_same_v<NEXT_MODULE, OutputModule> || CONTENT::OUTPUT_DIM == NEXT_MODULE::CONTENT::INPUT_DIM);
     };
 
+    template <typename T_CAPABILITY, typename T_SPEC>
+    struct CapabilitySpecification: T_SPEC{
+        using CAPABILITY = T_CAPABILITY;
+        using PARAMETER_TYPE = typename CAPABILITY::PARAMETER_TYPE;
+    };
+    template <typename T_SPEC>
+    struct ModuleForward;
+    template <typename T_SPEC, typename T_SPEC::TI T_BATCH_SIZE, typename T_CONTAINER_TYPE_TAG>
+    struct ContentBufferSpecification {
+        using SPEC = T_SPEC;
+        using TI = typename SPEC::TI;
+        using CONTENT = typename SPEC::CONTENT;
+        static constexpr TI BATCH_SIZE = T_BATCH_SIZE;
+        using CONTAINER_TYPE_TAG = T_CONTAINER_TYPE_TAG;
+        using CONTENT_BUFFER = typename CONTENT::template Buffer<BATCH_SIZE, CONTAINER_TYPE_TAG>;
+        static constexpr bool IS_FINAL = utils::typing::is_same_v<typename SPEC::NEXT_MODULE, OutputModule>;
+        using NEXT_MODULE = utils::typing::conditional_t<!IS_FINAL, typename SPEC::NEXT_MODULE, ModuleForward<SPEC>>;
+        using NEXT_SPEC = utils::typing::conditional_t<
+                !IS_FINAL,
+                ContentBufferSpecification<typename NEXT_MODULE::SPEC, BATCH_SIZE, CONTAINER_TYPE_TAG>,
+                OutputModule
+        >;
+    };
+    template <typename T_SPEC>
+    struct ContentBuffer{
+        using SPEC = T_SPEC;
+        using CONTENT_BUFFER = typename SPEC::CONTENT_BUFFER;
+        using NEXT_SPEC = typename SPEC::NEXT_SPEC;
+        CONTENT_BUFFER buffer;
+        using NEXT_CONTENT_BUFFER = utils::typing::conditional_t<utils::typing::is_same_v<NEXT_SPEC, OutputModule>,
+                OutputModule,
+                ContentBuffer<NEXT_SPEC>>;
+        NEXT_CONTENT_BUFFER next_content_buffer;
+    };
+
     template <typename T_SPEC, typename T_SPEC::TI T_BATCH_SIZE, typename T_CONTAINER_TYPE_TAG, typename T_MEMORY_LAYOUT>
     struct ModuleBufferSpecification {
         using SPEC = T_SPEC;
         using TI = typename SPEC::TI;
+        using CONTENT = typename SPEC::CONTENT;
         static constexpr TI BATCH_SIZE = T_BATCH_SIZE;
         using CONTAINER_TYPE_TAG = T_CONTAINER_TYPE_TAG;
         using MEMORY_LAYOUT = T_MEMORY_LAYOUT;
+        using CONTENT_BUFFER_SPEC = ContentBufferSpecification<SPEC, BATCH_SIZE, CONTAINER_TYPE_TAG>;
     };
     template <typename T_BUFFER_SPEC>
     struct ModuleBuffer{
@@ -108,9 +148,11 @@ namespace rl_tools::nn_models::sequential{
         using TICK_TOCK_CONTAINER_TYPE = typename BUFFER_SPEC::CONTAINER_TYPE_TAG::template type<TICK_TOCK_CONTAINER_SPEC>;
         TICK_TOCK_CONTAINER_TYPE tick;
         TICK_TOCK_CONTAINER_TYPE tock;
+        using CONTENT_BUFFER = ContentBuffer<typename BUFFER_SPEC::CONTENT_BUFFER_SPEC>;
+        CONTENT_BUFFER content_buffer;
     };
     template <typename T_SPEC>
-    struct Module{
+    struct ModuleForward{
         using SPEC = T_SPEC;
         using T = typename SPEC::T;
         using TI = typename SPEC::TI;
@@ -122,14 +164,40 @@ namespace rl_tools::nn_models::sequential{
         static constexpr auto INPUT_DIM = SPEC::INPUT_DIM;
         static constexpr auto OUTPUT_DIM = SPEC::OUTPUT_DIM;
 
+        // We have one module Buffer for the whole module and possible ContentBuffers for the intermediate steps (that are unwrapped recursively in tandem with the module/content)
         template <typename SPEC::TI BATCH_SIZE, typename CONTAINER_TYPE_TAG=typename SPEC::CONTAINER_TYPE_TAG, typename MEMORY_LAYOUT = matrix::layouts::DEFAULT<typename SPEC::TI>>
         using Buffer = ModuleBuffer<ModuleBufferSpecification<SPEC, BATCH_SIZE, CONTAINER_TYPE_TAG, MEMORY_LAYOUT>>;
     };
 
-    namespace interface{
-        template <typename T_CONTENT, typename T_NEXT_MODULE = OutputModule>
-        struct Module: rl_tools::nn_models::sequential::Module<Specification<T_CONTENT, T_NEXT_MODULE>>{};
-    }
+    template <typename T_SPEC>
+    struct ModuleBackward: public ModuleForward<T_SPEC>{};
+    template <typename T_SPEC>
+    struct ModuleGradient: public ModuleBackward<T_SPEC>{
+        using TI = typename T_SPEC::TI;
+        static constexpr TI BATCH_SIZE = T_SPEC::CAPABILITY::BATCH_SIZE;
+    };
+
+    template <typename CAPABILITY, template <typename> typename CONTENT, typename NEXT_MODULE>
+    using _Module =
+        utils::typing::conditional_t<CAPABILITY::TAG == nn::LayerCapability::Forward,
+                ModuleForward<CapabilitySpecification<CAPABILITY, Specification<CONTENT<CAPABILITY>, NEXT_MODULE>>>,
+        utils::typing::conditional_t<CAPABILITY::TAG == nn::LayerCapability::Backward,
+                ModuleBackward<CapabilitySpecification<CAPABILITY, Specification<CONTENT<CAPABILITY>, NEXT_MODULE>>>,
+        utils::typing::conditional_t<CAPABILITY::TAG == nn::LayerCapability::Gradient,
+                ModuleGradient<CapabilitySpecification<CAPABILITY, Specification<CONTENT<CAPABILITY>, NEXT_MODULE>>>, void>>>;
+
+    template <typename T_CAPABILITY, template <typename> typename T_CONTENT, typename T_NEXT_MODULE = OutputModule>
+    struct Module: _Module<T_CAPABILITY, T_CONTENT, T_NEXT_MODULE>{
+        template <typename TT_CAPABILITY>
+        using CHANGE_CAPABILITY = Module<TT_CAPABILITY, T_CONTENT, typename T_NEXT_MODULE::template CHANGE_CAPABILITY<TT_CAPABILITY>>;
+    };
+
+    template <typename T_CAPABILITY>
+    struct Interface{
+        template <template <typename> typename T_CONTENT, typename T_NEXT_MODULE = OutputModule>
+        using Module = sequential::Module<T_CAPABILITY, T_CONTENT, T_NEXT_MODULE>;
+    };
+
 }
 RL_TOOLS_NAMESPACE_WRAPPER_END
 

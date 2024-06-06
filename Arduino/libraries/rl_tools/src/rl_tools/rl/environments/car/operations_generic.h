@@ -3,6 +3,7 @@
 #pragma once
 #define RL_TOOLS_RL_ENVIRONMENTS_CAR_OPERATIONS_GENERIC_H
 #include "car.h"
+#include "track.h"
 #include "../operations_generic.h"
 RL_TOOLS_NAMESPACE_WRAPPER_START
 namespace rl_tools::rl::environments::car {
@@ -20,14 +21,14 @@ RL_TOOLS_NAMESPACE_WRAPPER_END
 RL_TOOLS_NAMESPACE_WRAPPER_START
 namespace rl_tools{
     template<typename DEVICE, typename SPEC>
-    static void malloc(DEVICE& device, const rl::environments::Car<SPEC>& env){ }
-    template<typename DEVICE, typename SPEC>
     static void init(DEVICE& device, rl::environments::CarTrack<SPEC>& env, bool ui = false){
         using T = typename SPEC::T;
         using TI = typename SPEC::TI;
+        static_assert(decltype(rl::environments::car::tracks::default_track<TI>)::HEIGHT == SPEC::HEIGHT);
+        static_assert(decltype(rl::environments::car::tracks::default_track<TI>)::WIDTH == SPEC::WIDTH);
         for(TI row_i=0; row_i < SPEC::HEIGHT; row_i++){
             for(TI col_i=0; col_i < SPEC::WIDTH; col_i++){
-                env.parameters.track[row_i][col_i] = true;
+                env.parameters.track[row_i][col_i] = rl::environments::car::tracks::default_track<TI>.track[row_i][col_i];
             }
         }
         env.initialized = true;
@@ -58,8 +59,8 @@ namespace rl_tools{
         using namespace rl::environments::car;
         using T = typename SPEC::T;
 
-        T throttle_break = get(action, 0, 0);
-        T delta = get(action, 0, 1);
+        T throttle_break = math::clamp(device.math, get(action, 0, 0), (T)-1, (T)1);
+        T delta = math::clamp(device.math, get(action, 0, 1), (T)-1, (T)1);
         
         auto& p = env.parameters;
         

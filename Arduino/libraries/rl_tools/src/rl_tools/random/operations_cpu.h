@@ -8,6 +8,7 @@
 #include "operations_generic.h"
 
 #include <random>
+#include <limits>
 
 RL_TOOLS_NAMESPACE_WRAPPER_START
 namespace rl_tools::random{
@@ -19,6 +20,14 @@ namespace rl_tools::random{
     T uniform_int_distribution(const devices::random::CPU& dev, T low, T high, RNG& rng){
         return std::uniform_int_distribution<T>(low, high)(rng);
     }
+    template <typename TI, typename RNG>
+    auto split(const devices::random::CPU& dev, TI split_id, RNG& rng){
+        // this operation should not alter the state of rng
+        RNG rng_copy = rng;
+        TI new_seed = random::uniform_int_distribution(dev, std::numeric_limits<TI>::min(), std::numeric_limits<TI>::max(), rng_copy);
+        return std::default_random_engine(new_seed + split_id);
+    }
+
     template<typename T, typename RNG>
     T uniform_real_distribution(const devices::random::CPU& dev, T low, T high, RNG& rng){
         static_assert(utils::typing::is_same_v<T, float> || utils::typing::is_same_v<T, double>);
@@ -31,23 +40,6 @@ namespace rl_tools::random{
         T sample(const devices::random::CPU& dev, T mean, T std, RNG& rng){
             static_assert(utils::typing::is_same_v<T, float> || utils::typing::is_same_v<T, double>);
             return std::normal_distribution<T>(mean, std)(rng);
-        }
-        template<typename DEVICE, typename T>
-        T log_prob(const devices::random::CPU& dev, T mean, T log_std, T value){
-            static_assert(utils::typing::is_same_v<T, float> || utils::typing::is_same_v<T, double>);
-            return log_prob(devices::random::Generic<devices::math::CPU>{}, mean, log_std, value);
-        }
-        template<typename DEVICE, typename T>
-        T d_log_prob_d_mean(const devices::random::CPU& dev, T mean, T log_std, T value){
-            return d_log_prob_d_mean(devices::random::Generic<devices::math::CPU>{}, mean, log_std, value);
-        }
-        template<typename DEVICE, typename T>
-        T d_log_prob_d_log_std(const devices::random::CPU& dev, T mean, T log_std, T value){
-            return d_log_prob_d_log_std(devices::random::Generic<devices::math::CPU>{}, mean, log_std, value);
-        }
-        template<typename DEVICE, typename T>
-        T d_log_prob_d_sample(const devices::random::CPU& dev, T mean, T log_std, T value){
-            return d_log_prob_d_sample(devices::random::Generic<devices::math::CPU>{}, mean, log_std, value);
         }
     }
 }

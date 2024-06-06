@@ -7,6 +7,7 @@
 
 #include <iostream>
 #include <iomanip>
+#include <cstdlib>
 RL_TOOLS_NAMESPACE_WRAPPER_START
 namespace rl_tools{
     template<typename DEVICE, typename SPEC>

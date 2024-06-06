@@ -14,6 +14,7 @@ namespace rl_tools::nn::parameters{
     namespace categories{
         struct Weights{};
         struct Biases{};
+        struct Constant{};
     }
 
     struct Plain{
@@ -31,7 +32,13 @@ namespace rl_tools::nn::parameters{
             CONTAINER parameters;
         };
     };
-    struct Gradient: Plain{
+    struct Gradient{
+        template <typename T_CONTAINER, typename T_GROUP_TAG, typename T_CATEGORY_TAG>
+        struct spec {
+            using CONTAINER = T_CONTAINER;
+            using GROUP_TAG = T_GROUP_TAG;
+            using CATEGORY_TAG = T_CATEGORY_TAG;
+        };
         template <typename T_SPEC>
         struct instance: Plain::instance<T_SPEC>{
             using SPEC = T_SPEC;

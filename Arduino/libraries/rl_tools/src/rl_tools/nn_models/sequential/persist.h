@@ -3,7 +3,6 @@
 #pragma once
 #define RL_TOOLS_NN_MODELS_SEQUENTIAL_PERSIST_H
 #include "../../nn/parameters/persist.h"
-#include "../../nn/optimizers/adam/persist.h"
 #include "../../nn/persist.h"
 #include "model.h"
 
@@ -13,7 +12,7 @@
 RL_TOOLS_NAMESPACE_WRAPPER_START
 namespace rl_tools{
         template<typename DEVICE, typename SPEC>
-        void save(DEVICE& device, nn_models::sequential::Module<SPEC>& model, HighFive::Group group, typename DEVICE::index_t layer_i = 0) {
+        void save(DEVICE& device, nn_models::sequential::ModuleForward<SPEC>& model, HighFive::Group group, typename DEVICE::index_t layer_i = 0) {
             if(layer_i == 0){
                 group = group.createGroup("layers");
             }
@@ -23,7 +22,7 @@ namespace rl_tools{
             }
         }
     template<typename DEVICE, typename SPEC>
-    void load(DEVICE& device, nn_models::sequential::Module<SPEC>& model, HighFive::Group group, typename DEVICE::index_t layer_i = 0) {
+    void load(DEVICE& device, nn_models::sequential::ModuleForward<SPEC>& model, HighFive::Group group, typename DEVICE::index_t layer_i = 0) {
         if(layer_i == 0){
             group = group.getGroup("layers");
         }

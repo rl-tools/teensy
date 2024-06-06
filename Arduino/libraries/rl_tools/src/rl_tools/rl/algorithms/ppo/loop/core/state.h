@@ -5,6 +5,7 @@
 
 #include "../../../../../rl/algorithms/ppo/ppo.h"
 #include "../../../../../rl/components/off_policy_runner/off_policy_runner.h"
+#include "../../../../../rl/environments/environments.h"
 
 RL_TOOLS_NAMESPACE_WRAPPER_START
 namespace rl_tools{
@@ -29,8 +30,8 @@ namespace rl_tools{
             typename CONFIG::CRITIC_BUFFERS_GAE critic_buffers_gae;
             rl::components::RunningNormalizer<rl::components::running_normalizer::Specification<T, TI, CONFIG::ENVIRONMENT::OBSERVATION_DIM>> observation_normalizer;
             typename CONFIG::ENVIRONMENT envs[CONFIG::CORE_PARAMETERS::N_ENVIRONMENTS];
-            MatrixDynamic<matrix::Specification<typename CONFIG::T, TI, 1, CONFIG::ENVIRONMENT::OBSERVATION_DIM>> observations_mean, observations_std;
-            bool ui = false;
+//            MatrixDynamic<matrix::Specification<typename CONFIG::T, TI, 1, CONFIG::ENVIRONMENT::OBSERVATION_DIM>> observations_mean, observations_std;
+            environments::DummyUI ui;
             TI next_checkpoint_id = 0;
             TI next_evaluation_id = 0;
             TI step;

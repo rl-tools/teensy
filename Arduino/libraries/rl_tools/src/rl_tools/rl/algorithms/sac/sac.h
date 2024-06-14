@@ -10,7 +10,6 @@ namespace rl_tools::rl::algorithms::sac {
     template<typename T, typename TI, TI ACTION_DIM=1>
     struct DefaultParameters {
         static constexpr T GAMMA = 0.99;
-        static constexpr T ALPHA = 0.5;
         static constexpr TI ACTOR_BATCH_SIZE = 32;
         static constexpr TI CRITIC_BATCH_SIZE = 32;
         static constexpr TI N_WARMUP_STEPS_CRITIC = 0;
@@ -21,10 +20,6 @@ namespace rl_tools::rl::algorithms::sac {
         static constexpr T ACTOR_POLYAK = 1.0 - 0.005;
         static constexpr T CRITIC_POLYAK = 1.0 - 0.005;
         static constexpr bool IGNORE_TERMINATION = false; // ignoring the termination flag is useful for training on environments with negative rewards, where the agent would try to terminate the episode as soon as possible otherwise
-        static constexpr T TARGET_ENTROPY = -((T)ACTION_DIM);
-        static constexpr bool ADAPTIVE_ALPHA = true;
-        static constexpr T ACTION_LOG_STD_LOWER_BOUND = -20;
-        static constexpr T ACTION_LOG_STD_UPPER_BOUND = 2;
     };
 
     template<
@@ -77,6 +72,8 @@ namespace rl_tools::rl::algorithms::sac {
         typename CONTAINER_TYPE_TAG::template type<matrix::Specification<T, TI, BATCH_SIZE, CRITIC_OBSERVATION_DIM + ACTION_DIM>> d_critic_1_input, d_critic_2_input;
         typename CONTAINER_TYPE_TAG::template type<matrix::Specification<T, TI, BATCH_SIZE, ACTION_DIM>> d_critic_action_input;
         typename CONTAINER_TYPE_TAG::template type<matrix::Specification<T, TI, BATCH_SIZE, ACTION_DIM>> action_sample, action_noise;
+        typename CONTAINER_TYPE_TAG::template type<matrix::Specification<T, TI, BATCH_SIZE, ACTION_DIM>> d_actor_output_squashing;
+        typename CONTAINER_TYPE_TAG::template type<matrix::Specification<T, TI, BATCH_SIZE, ACTION_DIM * 2>> d_squashing_input;
         typename CONTAINER_TYPE_TAG::template type<matrix::Specification<T, TI, BATCH_SIZE, ACTION_DIM * 2>> d_actor_output;
         typename CONTAINER_TYPE_TAG::template type<matrix::Specification<T, TI, BATCH_SIZE, ACTOR_INPUT_DIM>> d_actor_input;
 
@@ -99,7 +96,6 @@ namespace rl_tools::rl::algorithms::sac {
         NEXT_STATE_ACTION_VALUE_VIEW<CRITIC_OBSERVATION_DIM> next_observations;
         NEXT_STATE_ACTION_VALUE_VIEW<ACTION_DIM*2> next_actions_distribution;
         NEXT_STATE_ACTION_VALUE_VIEW<ACTION_DIM> next_actions_mean;
-        NEXT_STATE_ACTION_VALUE_VIEW<ACTION_DIM> next_actions_log_std;
         typename CONTAINER_TYPE_TAG::template type<matrix::Specification<T, TI, BATCH_SIZE, 1>> action_value;
         typename CONTAINER_TYPE_TAG::template type<matrix::Specification<T, TI, BATCH_SIZE, 1>> target_action_value;
         typename CONTAINER_TYPE_TAG::template type<matrix::Specification<T, TI, BATCH_SIZE, 1>> next_state_action_value_critic_1;
@@ -127,10 +123,6 @@ namespace rl_tools::rl::algorithms::sac {
         typename SPEC::CRITIC_NETWORK_TYPE critic_2;
         typename SPEC::CRITIC_TARGET_NETWORK_TYPE critic_target_1;
         typename SPEC::CRITIC_TARGET_NETWORK_TYPE critic_target_2;
-        using ALPHA_CONTAINER = typename SPEC::CONTAINER_TYPE_TAG::template type<matrix::Specification<T, TI, 1, 1>>;
-        using ALPHA_PARAMETER_SPEC = typename SPEC::ALPHA_PARAMETER_TYPE::template spec<ALPHA_CONTAINER, nn::parameters::categories::Biases, nn::parameters::groups::Normal>;
-        typename SPEC::ALPHA_PARAMETER_TYPE::template instance<ALPHA_PARAMETER_SPEC> log_alpha;
-
 
         typename SPEC::ACTOR_OPTIMIZER actor_optimizer;
         typename SPEC::CRITIC_OPTIMIZER critic_optimizers[2];

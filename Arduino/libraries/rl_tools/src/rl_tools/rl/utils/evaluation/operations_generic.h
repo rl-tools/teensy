@@ -94,13 +94,15 @@ namespace rl_tools{
                 for(TI forward_pass_i = 0; forward_pass_i < NUM_FORWARD_PASSES; forward_pass_i++){
                     auto observations_chunk = view(device, observations, matrix::ViewSpec<BATCH_SIZE, ENVIRONMENT::OBSERVATION_DIM>{}, forward_pass_i*BATCH_SIZE, 0);
                     auto actions_buffer_chunk = view(device, actions_buffer_full, matrix::ViewSpec<BATCH_SIZE, ENVIRONMENT::ACTION_DIM * (STOCHASTIC_POLICY ? 2 : 1)>{}, forward_pass_i*BATCH_SIZE, 0);
-                    evaluate(device, policy, observations_chunk, actions_buffer_chunk, policy_evaluation_buffers, rng);
+//                    sample(device, policy_evaluation_buffers, rng);
+                    evaluate(device, policy, observations_chunk, actions_buffer_chunk, policy_evaluation_buffers, rng, nn::Mode<nn::mode::Inference>{});
                 }
             }
             if constexpr(SPEC::N_EPISODES % BATCH_SIZE != 0){
                 auto observations_chunk = view(device, observations, matrix::ViewSpec<SPEC::N_EPISODES % BATCH_SIZE, ENVIRONMENT::OBSERVATION_DIM>{}, NUM_FORWARD_PASSES*BATCH_SIZE, 0);
                 auto actions_buffer_chunk = view(device, actions_buffer_full, matrix::ViewSpec<SPEC::N_EPISODES % BATCH_SIZE, ENVIRONMENT::ACTION_DIM * (STOCHASTIC_POLICY ? 2 : 1)>{}, NUM_FORWARD_PASSES*BATCH_SIZE, 0);
-                evaluate(device, policy, observations_chunk, actions_buffer_chunk, policy_evaluation_buffers, rng);
+//                sample(device, policy_evaluation_buffers, rng);
+                evaluate(device, policy, observations_chunk, actions_buffer_chunk, policy_evaluation_buffers, rng, nn::Mode<nn::mode::Inference>{});
             }
             if constexpr(STOCHASTIC_POLICY){ // todo: This is a special case for SAC, will be uneccessary once (https://github.com/rl-tools/rl-tools/blob/72a59eabf4038502c3be86a4f772bd72526bdcc8/TODO.md?plain=1#L22) is implemented
                 for(TI env_i = 0; env_i < SPEC::N_EPISODES; env_i++) {
@@ -121,13 +123,16 @@ namespace rl_tools{
                 auto& state = states[env_i];
                 auto action = row(device, actions_buffer, env_i);
                 T dt = step(device, env, state, action, next_state, rng);
-                set_state(device, env, ui, state);
-                set_action(device, env, ui, action);
-                render(device, env, ui);
+                if(env_i == 0 && !terminated[env_i]){ // only render the first environment
+                    set_state(device, env, ui, state);
+                    set_action(device, env, ui, action);
+                    render(device, env, ui);
+                }
                 T r = reward(device, env, state, action, next_state, rng);
                 rl::utils::evaluation::set_reward(data, env_i, step_i, r);
                 bool terminated_flag = rl_tools::terminated(device, env, next_state, rng);
                 terminated_flag = terminated_flag || terminated[env_i];
+                terminated[env_i] = terminated_flag;
                 rl::utils::evaluation::set_terminated(data, env_i, step_i, terminated_flag);
                 if(!terminated_flag){
                     results.returns[env_i] += r;

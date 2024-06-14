@@ -4,7 +4,9 @@
 #define RL_TOOLS_RL_ALGORITHMS_SAC_LOOP_CORE_OPERATIONS_GENERIC_H
 
 #include "../../../../../nn/optimizers/adam/instance/operations_generic.h"
-#include "../../../../../nn_models/operations_generic.h"
+#include "../../../../../nn/layers/sample_and_squash/operations_generic.h"
+#include "../../../../../nn_models/mlp/operations_generic.h"
+#include "../../../../../nn_models/sequential/operations_generic.h"
 #include "../../../../../nn_models/random_uniform/operations_generic.h"
 #include "../../../../../rl/algorithms/sac/operations_generic.h"
 #include "../../../../../nn/optimizers/adam/operations_generic.h"
@@ -101,13 +103,14 @@ namespace rl_tools{
         using CONFIG = T_CONFIG;
         set_step(device, device.logger, ts.step);
         bool finished = false;
+        using SAMPLE_AND_SQUASH_MODE = nn::Mode<nn::layers::sample_and_squash::mode::Sample<nn::mode::Default>>;
         if(ts.step >= CONFIG::CORE_PARAMETERS::N_WARMUP_STEPS){
-            step(device, ts.off_policy_runner, get_actor(ts), ts.actor_buffers_eval, ts.rng);
+            step(device, ts.off_policy_runner, get_actor(ts), ts.actor_buffers_eval, ts.rng, SAMPLE_AND_SQUASH_MODE{});
         }
         else{
             typename CONFIG::EXPLORATION_POLICY exploration_policy;
             typename CONFIG::EXPLORATION_POLICY::template Buffer<> exploration_policy_buffer;
-            step(device, ts.off_policy_runner, exploration_policy, exploration_policy_buffer, ts.rng);
+            step(device, ts.off_policy_runner, exploration_policy, exploration_policy_buffer, ts.rng, SAMPLE_AND_SQUASH_MODE{});
         }
         if(ts.step >= CONFIG::CORE_PARAMETERS::N_WARMUP_STEPS){
             if constexpr(CONFIG::CORE_PARAMETERS::SHARED_BATCH){

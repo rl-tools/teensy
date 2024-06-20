@@ -19,17 +19,19 @@ namespace rl_tools::rl::environments::acrobot {
         static constexpr T LINK_MOI = 1.0;  //: moments of inertia for both links
         static constexpr T MAX_VEL_1 = 4 * math::PI<T>;
         static constexpr T MAX_VEL_2 = 9 * math::PI<T>;
-        static constexpr T MIN_TORQUE = -1;
-        static constexpr T MAX_TORQUE = +1;
+        static constexpr T MIN_TORQUE = -5;
+        static constexpr T MAX_TORQUE = +5;
         static constexpr T TORQUE_NOISE_MAX = 0.0;
         static constexpr T SCREEN_DIM = 500;
         static constexpr T VEL_PENALTY = 0.2;
     };
     template <typename T>
     struct EasyParameters: DefaultParameters<T> {
-        static constexpr T min_torque = -10;
-        static constexpr T max_torque = +10;
+        static constexpr T MIN_TORQUE = -10;
+        static constexpr T MAX_TORQUE = +10;
     };
+    template <typename T>
+    struct Parameters{};
     template <typename T_T, typename T_TI, typename T_PARAMETERS = DefaultParameters<T_T>>
     struct Specification{
         using T = T_T;
@@ -40,10 +42,10 @@ namespace rl_tools::rl::environments::acrobot {
     template <typename T, typename TI>
     struct State{
         static constexpr TI DIM = 4;
-        T theta_0;
         T theta_1;
-        T theta_0_dot;
+        T theta_2;
         T theta_1_dot;
+        T theta_2_dot;
     };
 
 }
@@ -51,16 +53,18 @@ RL_TOOLS_NAMESPACE_WRAPPER_END
 
 RL_TOOLS_NAMESPACE_WRAPPER_START
 namespace rl_tools::rl::environments{
+
     template <typename T_SPEC>
     struct Acrobot: Environment{
         using SPEC = T_SPEC;
         using T = typename SPEC::T;
         using TI = typename SPEC::TI;
         using State = acrobot::State<T, TI>;
-        using PARAMETERS = typename SPEC::PARAMETERS;
+        using Parameters = typename SPEC::PARAMETERS;
         static constexpr TI OBSERVATION_DIM = 6;
         static constexpr TI OBSERVATION_DIM_PRIVILEGED = OBSERVATION_DIM;
         static constexpr TI ACTION_DIM = 1;
+        acrobot::Parameters<T> parameters;
     };
     template <typename T_SPEC>
     struct AcrobotSwingup: Acrobot<T_SPEC>{};

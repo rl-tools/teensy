@@ -8,17 +8,21 @@
 
 RL_TOOLS_NAMESPACE_WRAPPER_START
 namespace rl_tools::rl::environments::car{
-    template <typename DEVICE, typename T>
-    nlohmann::json json(const DEVICE& device, const rl::environments::car::Parameters<T>& parameters){
+    template <typename DEVICE, typename SPEC, typename T>
+    nlohmann::json json_object(const DEVICE& device, const rl::environments::Car<SPEC>, const rl::environments::car::Parameters<T>& parameters){
         nlohmann::json j;
         j["lf"]  = parameters.lf;
         j["lr"]  = parameters.lr;
         j["dt"]  = parameters.dt;
         return j;
     }
-    template <typename DEVICE, typename T, typename TI, TI T_HEIGHT, TI T_WIDTH, TI T_TRACK_SCALE>
-    nlohmann::json json(const DEVICE& device, const rl::environments::car::ParametersTrack<T, TI, T_HEIGHT, T_WIDTH, T_TRACK_SCALE>& parameters){
-        nlohmann::json j = json(device, static_cast<const rl::environments::car::Parameters<T>&>(parameters));
+    template <typename DEVICE, typename SPEC, typename T>
+    std::string json(const DEVICE& device, const rl::environments::Car<SPEC>& env, const rl::environments::car::Parameters<T>& parameters){
+        return json_object(device, env, parameters).dump();
+    }
+    template <typename DEVICE, typename SPEC, typename T, typename TI, TI T_HEIGHT, TI T_WIDTH, TI T_TRACK_SCALE>
+    std::string json(const DEVICE& device, const rl::environments::CarTrack<SPEC>& env, const rl::environments::car::ParametersTrack<T, TI, T_HEIGHT, T_WIDTH, T_TRACK_SCALE>& parameters){
+        nlohmann::json j = json_object(device, env, static_cast<const rl::environments::car::Parameters<T>&>(parameters));
         j["height"] = T_HEIGHT;
         j["width"] = T_WIDTH;
         j["track_scale"] = T_TRACK_SCALE/(T)1000.0;
@@ -31,10 +35,10 @@ namespace rl_tools::rl::environments::car{
             track.push_back(row);
         }
         j["track"] = track;
-        return j;
+        return j.dump();
     }
-    template <typename DEVICE, typename T, typename TI>
-    nlohmann::json json(const DEVICE& device, const rl::environments::car::State<T, TI>& state){
+    template <typename DEVICE, typename SPEC, typename T, typename TI>
+    std::string json(const DEVICE& device, const rl::environments::Car<SPEC>, const typename rl::environments::Car<SPEC>::Parameters& parameters, const rl::environments::car::State<T, TI>& state){
         nlohmann::json j;
         j["x"] = state.x;
         j["y"] = state.y;
@@ -42,7 +46,7 @@ namespace rl_tools::rl::environments::car{
         j["vx"] = state.vx;
         j["vy"] = state.vy;
         j["omega"] = state.omega;
-        return j;
+        return j.dump();
     }
 }
 RL_TOOLS_NAMESPACE_WRAPPER_END

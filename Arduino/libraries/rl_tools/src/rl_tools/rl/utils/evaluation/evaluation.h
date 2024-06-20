@@ -30,10 +30,12 @@ namespace rl_tools::rl::utils::evaluation{
         using T = typename SPEC::T;
         using TI = typename SPEC::TI;
         using ENVIRONMENT = typename SPEC::ENVIRONMENT;
+        typename ENVIRONMENT::Parameters parameters[SPEC::N_EPISODES];
         bool terminated[SPEC::N_EPISODES][SPEC::STEP_LIMIT];
         T rewards[SPEC::N_EPISODES][SPEC::STEP_LIMIT];
         typename ENVIRONMENT::State states[SPEC::N_EPISODES][SPEC::STEP_LIMIT];
         T actions[SPEC::N_EPISODES][SPEC::STEP_LIMIT][ENVIRONMENT::ACTION_DIM];
+        T dt[SPEC::N_EPISODES][SPEC::STEP_LIMIT];
     };
     template <typename T_SPEC>
     struct NoData{};

@@ -33,6 +33,12 @@ namespace rl_tools{
             }
         }
         template<typename TI, typename SPEC>
+        void set_dt(rl::utils::evaluation::NoData<SPEC>& data, TI episode_i, TI step_i, typename SPEC::T dt){ }
+        template<typename TI, typename SPEC>
+        void set_dt(rl::utils::evaluation::Data<SPEC>& data, TI episode_i, TI step_i, typename SPEC::T dt){
+            data.dt[episode_i][step_i] = dt;
+        }
+        template<typename TI, typename SPEC>
         void set_reward(rl::utils::evaluation::NoData<SPEC>& data, TI episode_i, TI step_i, typename SPEC::T reward){}
         template<typename TI, typename SPEC>
         void set_reward(rl::utils::evaluation::Data<SPEC>& data, TI episode_i, TI step_i, typename SPEC::T reward){
@@ -63,30 +69,35 @@ namespace rl_tools{
 
         ENVIRONMENT envs[SPEC::N_EPISODES];
         typename ENVIRONMENT::State states[SPEC::N_EPISODES];
+        typename ENVIRONMENT::Parameters parameters[SPEC::N_EPISODES];
         bool terminated[SPEC::N_EPISODES];
 
         for(TI env_i = 0; env_i < SPEC::N_EPISODES; env_i++){
             auto& env = envs[env_i];
             malloc(device, env);
-            init(device, env);
             results.returns[env_i] = 0;
             results.episode_length[env_i] = 0;
             terminated[env_i] = false;
             auto& state = states[env_i];
+            auto& current_parameters = parameters[env_i];
+            init(device, env, current_parameters);
             if(deterministic) {
-                rl_tools::initial_state(device, env, state);
+                rl_tools::initial_parameters(device, env, current_parameters);
+                rl_tools::initial_state(device, env, current_parameters, state);
             }
             else{
-                sample_initial_state(device, env, state, rng);
+                sample_initial_parameters(device, env, current_parameters, rng);
+                sample_initial_state(device, env, current_parameters, state, rng);
             }
         }
         for(TI step_i = 0; step_i < SPEC::STEP_LIMIT; step_i++) {
             for(TI env_i = 0; env_i < SPEC::N_EPISODES; env_i++) {
                 auto observation = row(device, observations, env_i);
                 auto& state = states[env_i];
+                auto& env_parameters = parameters[env_i];
                 rl::utils::evaluation::set_state(data, env_i, step_i, states[env_i]);
                 auto& env = envs[env_i];
-                observe(device, env, state, observation, rng);
+                observe(device, env, env_parameters, state, observation, rng);
             }
             constexpr TI BATCH_SIZE = POLICY_EVALUATION_BUFFERS::BATCH_SIZE;
             constexpr TI NUM_FORWARD_PASSES = SPEC::N_EPISODES / BATCH_SIZE;
@@ -121,16 +132,18 @@ namespace rl_tools{
                 auto& env = envs[env_i];
                 typename ENVIRONMENT::State next_state;
                 auto& state = states[env_i];
+                auto& env_parameters = parameters[env_i];
                 auto action = row(device, actions_buffer, env_i);
-                T dt = step(device, env, state, action, next_state, rng);
+                T dt = step(device, env, env_parameters, state, action, next_state, rng);
                 if(env_i == 0 && !terminated[env_i]){ // only render the first environment
-                    set_state(device, env, ui, state);
-                    set_action(device, env, ui, action);
-                    render(device, env, ui);
+                    set_state(device, env, env_parameters, ui, state);
+                    set_action(device, env,  env_parameters, ui, action);
+                    render(device, env, env_parameters, ui);
                 }
-                T r = reward(device, env, state, action, next_state, rng);
+                rl::utils::evaluation::set_dt(data, env_i, step_i, dt);
+                T r = reward(device, env, env_parameters, state, action, next_state, rng);
                 rl::utils::evaluation::set_reward(data, env_i, step_i, r);
-                bool terminated_flag = rl_tools::terminated(device, env, next_state, rng);
+                bool terminated_flag = rl_tools::terminated(device, env, env_parameters, next_state, rng);
                 terminated_flag = terminated_flag || terminated[env_i];
                 terminated[env_i] = terminated_flag;
                 rl::utils::evaluation::set_terminated(data, env_i, step_i, terminated_flag);

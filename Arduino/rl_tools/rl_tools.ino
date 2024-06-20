@@ -21,7 +21,7 @@ EXTMEM: off_policy_runner/replay_buffer
 #define RL_TOOLS_DEPLOYMENT_ARDUINO
 // #define BENCHMARK
 // #define RL_TOOLS_DISABLE_EVALUATION
-// tested with: https://github.com/rl-tools/rl-tools/blob/f09777243ff06b30d1c46ea61abbffb19c459b2d/src/rl/environments/pendulum/sac/arm/training.h
+// tested with: https://github.com/rl-tools/rl-tools/blob/c5a053fe5e521e9e6fd51f2808e87ea599fd8d6d/src/rl/environments/pendulum/sac/arm/training.h
 // Copy this file somewhere on your PC and include it in the following:
 #include </home/jonas/rl_tools/src/rl/environments/pendulum/sac/arm/training.h>
 

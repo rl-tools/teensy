@@ -24,6 +24,12 @@ namespace rl_tools::rl::environments::pendulum {
 RL_TOOLS_NAMESPACE_WRAPPER_END
 RL_TOOLS_NAMESPACE_WRAPPER_START
 namespace rl_tools{
+    template<typename DEVICE, typename SPEC>
+    RL_TOOLS_FUNCTION_PLACEMENT static void malloc(DEVICE& device, const rl::environments::Pendulum<SPEC>& env){ }
+    template<typename DEVICE, typename SPEC>
+    RL_TOOLS_FUNCTION_PLACEMENT static void free(DEVICE& device, const rl::environments::Pendulum<SPEC>& env){ }
+    template<typename DEVICE, typename SPEC>
+    RL_TOOLS_FUNCTION_PLACEMENT static void init(DEVICE& device, const rl::environments::Pendulum<SPEC>& env, typename rl::environments::Pendulum<SPEC>::Parameters& parameters){ }
     template<typename DEVICE, typename SPEC, typename RNG>
     RL_TOOLS_FUNCTION_PLACEMENT static void sample_initial_parameters(DEVICE& device, const rl::environments::Pendulum<SPEC>& env, typename rl::environments::Pendulum<SPEC>::Parameters& parameters, RNG& rng){ }
     template<typename DEVICE, typename SPEC>
@@ -73,8 +79,8 @@ namespace rl_tools{
         return -costs;
     }
 
-    template<typename DEVICE, typename SPEC, typename OBS_SPEC, typename RNG>
-    RL_TOOLS_FUNCTION_PLACEMENT static void observe(DEVICE& device, const rl::environments::Pendulum<SPEC>& env, const typename rl::environments::Pendulum<SPEC>::Parameters& parameters, const typename rl::environments::Pendulum<SPEC>::State& state, Matrix<OBS_SPEC>& observation, RNG& rng){
+    template<typename DEVICE, typename SPEC, typename OBS_TYPE_SPEC, typename OBS_SPEC, typename RNG>
+    RL_TOOLS_FUNCTION_PLACEMENT static void observe(DEVICE& device, const rl::environments::Pendulum<SPEC>& env, const typename rl::environments::Pendulum<SPEC>::Parameters& parameters, const typename rl::environments::Pendulum<SPEC>::State& state, const typename rl::environments::pendulum::ObservationFourier<OBS_TYPE_SPEC>&, Matrix<OBS_SPEC>& observation, RNG& rng){
         static_assert(OBS_SPEC::ROWS == 1);
         static_assert(OBS_SPEC::COLS == 3);
         typedef typename SPEC::T T;
@@ -82,11 +88,13 @@ namespace rl_tools{
         set(observation, 0, 1, math::sin(device.math, state.theta));
         set(observation, 0, 2, state.theta_dot);
     }
-    template<typename DEVICE, typename SPEC, typename OBS_SPEC, typename RNG>
-    RL_TOOLS_FUNCTION_PLACEMENT static void observe_privileged(DEVICE& device, const rl::environments::Pendulum<SPEC>& env, const typename rl::environments::Pendulum<SPEC>::Parameters& parameters, const typename rl::environments::Pendulum<SPEC>::State& state, Matrix<OBS_SPEC>& observation, RNG& rng){
+    template<typename DEVICE, typename SPEC, typename OBS_TYPE_SPEC, typename OBS_SPEC, typename RNG>
+    RL_TOOLS_FUNCTION_PLACEMENT static void observe(DEVICE& device, const rl::environments::Pendulum<SPEC>& env, const typename rl::environments::Pendulum<SPEC>::Parameters& parameters, const typename rl::environments::Pendulum<SPEC>::State& state, const typename rl::environments::pendulum::ObservationRaw<OBS_TYPE_SPEC>&, Matrix<OBS_SPEC>& observation, RNG& rng){
         static_assert(OBS_SPEC::ROWS == 1);
-        static_assert(OBS_SPEC::COLS == 3);
-        observe(device, env, state, observation, rng);
+        static_assert(OBS_SPEC::COLS == 2);
+        typedef typename SPEC::T T;
+        set(observation, 0, 0, rl::environments::pendulum::angle_normalize(device.math, state.theta));
+        set(observation, 0, 1, state.theta_dot);
     }
     // get_serialized_state is not generally required, it is just used in the WASM demonstration of the project page, where serialization is needed to go from the WASM runtime to the JavaScript UI
     template<typename DEVICE, typename SPEC>

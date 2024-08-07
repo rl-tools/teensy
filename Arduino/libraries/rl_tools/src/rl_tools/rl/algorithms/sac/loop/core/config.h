@@ -53,7 +53,7 @@ namespace rl_tools::rl::algorithms::sac::loop::core{
     struct ConfigApproximatorsSequential{
         template <typename CAPABILITY>
         struct Actor{
-            using ACTOR_SPEC = nn_models::mlp::Specification<T, TI, ENVIRONMENT::OBSERVATION_DIM, 2*ENVIRONMENT::ACTION_DIM, PARAMETERS::ACTOR_NUM_LAYERS, PARAMETERS::ACTOR_HIDDEN_DIM, PARAMETERS::ACTOR_ACTIVATION_FUNCTION,  nn::activation_functions::IDENTITY, typename PARAMETERS::INITIALIZER, CONTAINER_TYPE_TAG>;
+            using ACTOR_SPEC = nn_models::mlp::Specification<T, TI, ENVIRONMENT::Observation::DIM, 2*ENVIRONMENT::ACTION_DIM, PARAMETERS::ACTOR_NUM_LAYERS, PARAMETERS::ACTOR_HIDDEN_DIM, PARAMETERS::ACTOR_ACTIVATION_FUNCTION,  nn::activation_functions::IDENTITY, typename PARAMETERS::INITIALIZER, CONTAINER_TYPE_TAG>;
             using ACTOR_TYPE = nn_models::mlp::BindSpecification<ACTOR_SPEC>;
             using IF = nn_models::sequential::Interface<CAPABILITY>;
             struct SAMPLE_AND_SQUASH_LAYER_PARAMETERS{
@@ -71,7 +71,7 @@ namespace rl_tools::rl::algorithms::sac::loop::core{
         };
         template <typename CAPABILITY>
         struct Critic{
-            static constexpr TI INPUT_DIM = ENVIRONMENT::OBSERVATION_DIM+ENVIRONMENT::ACTION_DIM;
+            static constexpr TI INPUT_DIM = ENVIRONMENT::ObservationPrivileged::DIM+ENVIRONMENT::ACTION_DIM;
             using SPEC = nn_models::mlp::Specification<T, TI, INPUT_DIM, 1, PARAMETERS::CRITIC_NUM_LAYERS, PARAMETERS::CRITIC_HIDDEN_DIM, PARAMETERS::CRITIC_ACTIVATION_FUNCTION, nn::activation_functions::IDENTITY, typename PARAMETERS::INITIALIZER, CONTAINER_TYPE_TAG>;
             using TYPE = nn_models::mlp::BindSpecification<SPEC>;
             using IF = nn_models::sequential::Interface<CAPABILITY>;
@@ -107,7 +107,7 @@ namespace rl_tools::rl::algorithms::sac::loop::core{
         using NN = APPROXIMATOR_CONFIG<T, TI, T_ENVIRONMENT, CORE_PARAMETERS, CONTAINER_TYPE_TAG>;
 //        using NN = ConfigApproximatorsMLP<T, TI, T_ENVIRONMENT, T_PARAMETERS>;
 
-        using EXPLORATION_POLICY_SPEC = nn_models::random_uniform::Specification<T, TI, ENVIRONMENT::OBSERVATION_DIM, ENVIRONMENT::ACTION_DIM, nn_models::random_uniform::Range::MINUS_ONE_TO_ONE>;
+        using EXPLORATION_POLICY_SPEC = nn_models::random_uniform::Specification<T, TI, ENVIRONMENT::Observation::DIM, ENVIRONMENT::ACTION_DIM, nn_models::random_uniform::Range::MINUS_ONE_TO_ONE>;
         using EXPLORATION_POLICY = nn_models::RandomUniform<EXPLORATION_POLICY_SPEC>;
 
         using ALPHA_PARAMETER_TYPE = nn::parameters::Adam;
@@ -118,10 +118,9 @@ namespace rl_tools::rl::algorithms::sac::loop::core{
 
         struct OFF_POLICY_RUNNER_PARAMETERS{
             static constexpr TI N_ENVIRONMENTS = CORE_PARAMETERS::N_ENVIRONMENTS;
-            static constexpr bool ASYMMETRIC_OBSERVATIONS = false;
+            static constexpr bool ASYMMETRIC_OBSERVATIONS = !rl_tools::utils::typing::is_same_v<typename ENVIRONMENT::Observation, typename ENVIRONMENT::ObservationPrivileged>;
             static constexpr TI REPLAY_BUFFER_CAPACITY = CORE_PARAMETERS::REPLAY_BUFFER_CAP;
             static constexpr TI EPISODE_STEP_LIMIT = CORE_PARAMETERS::EPISODE_STEP_LIMIT;
-            static constexpr bool STOCHASTIC_POLICY = true;
             static constexpr bool COLLECT_EPISODE_STATS = CORE_PARAMETERS::COLLECT_EPISODE_STATS;
             static constexpr TI EPISODE_STATS_BUFFER_SIZE = CORE_PARAMETERS::EPISODE_STATS_BUFFER_SIZE;
             static constexpr T EXPLORATION_NOISE = 0.1;

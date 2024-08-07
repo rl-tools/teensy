@@ -15,10 +15,16 @@ RL_TOOLS_NAMESPACE_WRAPPER_START
 namespace rl_tools{
     namespace rl::utils::evaluation{
         template<typename TI, typename SPEC>
-        void set_state(rl::utils::evaluation::NoData<SPEC>& data, TI episode_i, TI step_i, const typename SPEC::ENVIRONMENT::State state){}
+        void set_state(rl::utils::evaluation::NoData<SPEC>& data, TI episode_i, TI step_i, const typename SPEC::ENVIRONMENT::State& state){}
         template<typename TI, typename SPEC>
-        void set_state(rl::utils::evaluation::Data<SPEC>& data, TI episode_i, TI step_i, const typename SPEC::ENVIRONMENT::State state){
+        void set_state(rl::utils::evaluation::Data<SPEC>& data, TI episode_i, TI step_i, const typename SPEC::ENVIRONMENT::State& state){
             data.states[episode_i][step_i] = state;
+        }
+        template<typename TI, typename SPEC>
+        void set_parameters(rl::utils::evaluation::NoData<SPEC>& data, TI episode_i, const typename SPEC::ENVIRONMENT::Parameters& parameters){ }
+        template<typename TI, typename SPEC>
+        void set_parameters(rl::utils::evaluation::Data<SPEC>& data, TI episode_i, const typename SPEC::ENVIRONMENT::Parameters& parameters){
+            data.parameters[episode_i] = parameters;
         }
         template<typename TI, typename SPEC, typename ACTION_SPEC>
         void set_action(rl::utils::evaluation::NoData<SPEC>& data, TI step_i, const Matrix<ACTION_SPEC>& actions){}
@@ -55,7 +61,7 @@ namespace rl_tools{
     void evaluate(DEVICE& device, ENVIRONMENT&, UI& ui, const POLICY& policy, rl::utils::evaluation::Result<SPEC>& results, DATA<SPEC>& data, POLICY_EVALUATION_BUFFERS& policy_evaluation_buffers, RNG &rng, bool deterministic = false){
         using T = typename POLICY::T;
         using TI = typename DEVICE::index_t;
-        static_assert(ENVIRONMENT::OBSERVATION_DIM == POLICY::INPUT_DIM, "Observation and policy input dimensions must match");
+        static_assert(ENVIRONMENT::Observation::DIM == POLICY::INPUT_DIM, "Observation and policy input dimensions must match");
         static_assert(ENVIRONMENT::ACTION_DIM == POLICY::OUTPUT_DIM || (2*ENVIRONMENT::ACTION_DIM == POLICY::OUTPUT_DIM), "Action and policy output dimensions must match");
         static constexpr bool STOCHASTIC_POLICY = POLICY::OUTPUT_DIM == 2*ENVIRONMENT::ACTION_DIM;
         results.returns_mean = 0;
@@ -63,8 +69,10 @@ namespace rl_tools{
         results.episode_length_mean = 0;
         results.episode_length_std = 0;
 
-        MatrixStatic<matrix::Specification<T, TI, SPEC::N_EPISODES, ENVIRONMENT::ACTION_DIM * (STOCHASTIC_POLICY ? 2 : 1)>> actions_buffer_full;
-        MatrixStatic<matrix::Specification<T, TI, SPEC::N_EPISODES, ENVIRONMENT::OBSERVATION_DIM>> observations;
+        MatrixDynamic<matrix::Specification<T, TI, SPEC::N_EPISODES, ENVIRONMENT::ACTION_DIM * (STOCHASTIC_POLICY ? 2 : 1)>> actions_buffer_full;
+        MatrixDynamic<matrix::Specification<T, TI, SPEC::N_EPISODES, ENVIRONMENT::Observation::DIM>> observations;
+        malloc(device, actions_buffer_full);
+        malloc(device, observations);
         auto actions_buffer = view(device, actions_buffer_full, matrix::ViewSpec<SPEC::N_EPISODES, ENVIRONMENT::ACTION_DIM>{});
 
         ENVIRONMENT envs[SPEC::N_EPISODES];
@@ -89,6 +97,7 @@ namespace rl_tools{
                 sample_initial_parameters(device, env, current_parameters, rng);
                 sample_initial_state(device, env, current_parameters, state, rng);
             }
+            rl::utils::evaluation::set_parameters(data, env_i, current_parameters);
         }
         for(TI step_i = 0; step_i < SPEC::STEP_LIMIT; step_i++) {
             for(TI env_i = 0; env_i < SPEC::N_EPISODES; env_i++) {
@@ -97,20 +106,20 @@ namespace rl_tools{
                 auto& env_parameters = parameters[env_i];
                 rl::utils::evaluation::set_state(data, env_i, step_i, states[env_i]);
                 auto& env = envs[env_i];
-                observe(device, env, env_parameters, state, observation, rng);
+                observe(device, env, env_parameters, state, typename ENVIRONMENT::Observation{}, observation, rng);
             }
             constexpr TI BATCH_SIZE = POLICY_EVALUATION_BUFFERS::BATCH_SIZE;
             constexpr TI NUM_FORWARD_PASSES = SPEC::N_EPISODES / BATCH_SIZE;
             if constexpr(NUM_FORWARD_PASSES > 0){
                 for(TI forward_pass_i = 0; forward_pass_i < NUM_FORWARD_PASSES; forward_pass_i++){
-                    auto observations_chunk = view(device, observations, matrix::ViewSpec<BATCH_SIZE, ENVIRONMENT::OBSERVATION_DIM>{}, forward_pass_i*BATCH_SIZE, 0);
+                    auto observations_chunk = view(device, observations, matrix::ViewSpec<BATCH_SIZE, ENVIRONMENT::Observation::DIM>{}, forward_pass_i*BATCH_SIZE, 0);
                     auto actions_buffer_chunk = view(device, actions_buffer_full, matrix::ViewSpec<BATCH_SIZE, ENVIRONMENT::ACTION_DIM * (STOCHASTIC_POLICY ? 2 : 1)>{}, forward_pass_i*BATCH_SIZE, 0);
 //                    sample(device, policy_evaluation_buffers, rng);
                     evaluate(device, policy, observations_chunk, actions_buffer_chunk, policy_evaluation_buffers, rng, nn::Mode<nn::mode::Inference>{});
                 }
             }
             if constexpr(SPEC::N_EPISODES % BATCH_SIZE != 0){
-                auto observations_chunk = view(device, observations, matrix::ViewSpec<SPEC::N_EPISODES % BATCH_SIZE, ENVIRONMENT::OBSERVATION_DIM>{}, NUM_FORWARD_PASSES*BATCH_SIZE, 0);
+                auto observations_chunk = view(device, observations, matrix::ViewSpec<SPEC::N_EPISODES % BATCH_SIZE, ENVIRONMENT::Observation::DIM>{}, NUM_FORWARD_PASSES*BATCH_SIZE, 0);
                 auto actions_buffer_chunk = view(device, actions_buffer_full, matrix::ViewSpec<SPEC::N_EPISODES % BATCH_SIZE, ENVIRONMENT::ACTION_DIM * (STOCHASTIC_POLICY ? 2 : 1)>{}, NUM_FORWARD_PASSES*BATCH_SIZE, 0);
 //                sample(device, policy_evaluation_buffers, rng);
                 evaluate(device, policy, observations_chunk, actions_buffer_chunk, policy_evaluation_buffers, rng, nn::Mode<nn::mode::Inference>{});
@@ -170,6 +179,8 @@ namespace rl_tools{
         results.returns_std = math::sqrt(device.math, math::max(device.math, (T)0, results.returns_std/SPEC::N_EPISODES - results.returns_mean*results.returns_mean));
         results.episode_length_mean /= SPEC::N_EPISODES;
         results.episode_length_std = math::sqrt(device.math, math::max(device.math, (T)0, results.episode_length_std/SPEC::N_EPISODES - results.episode_length_mean*results.episode_length_mean));
+        free(device, actions_buffer_full);
+        free(device, observations);
     }
     template<typename DEVICE, typename ENVIRONMENT, typename UI, typename POLICY, typename RNG, typename SPEC, typename POLICY_EVALUATION_BUFFERS>
     void evaluate(DEVICE& device, ENVIRONMENT& env, UI& ui, const POLICY& policy, rl::utils::evaluation::Result<SPEC>& results, POLICY_EVALUATION_BUFFERS& policy_evaluation_buffers, RNG &rng, bool deterministic = false){

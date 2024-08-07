@@ -34,6 +34,12 @@ namespace rl_tools{
         env.initialized = true;
     }
     template<typename DEVICE, typename SPEC>
+    static void malloc(DEVICE& device, const rl::environments::Car<SPEC>& env){ }
+    template<typename DEVICE, typename SPEC>
+    static void free(DEVICE& device, const rl::environments::Car<SPEC>& env){ }
+    template<typename DEVICE, typename SPEC>
+    static void init(DEVICE& device, const rl::environments::Car<SPEC>& env, typename rl::environments::Car<SPEC>::Parameters& parameters){ }
+    template<typename DEVICE, typename SPEC>
     static void initial_parameters(DEVICE& device, const rl::environments::Car<SPEC>& env, typename rl::environments::Car<SPEC>::Parameters& parameters){ }
     template<typename DEVICE, typename SPEC, typename RNG>
     RL_TOOLS_FUNCTION_PLACEMENT static void sample_initial_parameters(DEVICE& device, const rl::environments::Car<SPEC>& env, typename rl::environments::Car<SPEC>::Parameters& parameters, RNG& rng){ }
@@ -101,11 +107,11 @@ namespace rl_tools{
         return state.vx;
     }
 
-    template<typename DEVICE, typename SPEC, typename OBS_SPEC, typename RNG>
-    RL_TOOLS_FUNCTION_PLACEMENT static void observe(DEVICE& device, const rl::environments::Car<SPEC>& env, const typename rl::environments::Car<SPEC>::Parameters& parameters, const typename rl::environments::Car<SPEC>::State& state, Matrix<OBS_SPEC>& observation, RNG& rng){
+    template<typename DEVICE, typename SPEC, typename OBS_TYPE_SPEC, typename OBS_SPEC, typename RNG>
+    RL_TOOLS_FUNCTION_PLACEMENT static void observe(DEVICE& device, const rl::environments::Car<SPEC>& env, const typename rl::environments::Car<SPEC>::Parameters& parameters, const typename rl::environments::Car<SPEC>::State& state, const typename rl::environments::car::ObservationCar<OBS_TYPE_SPEC>&, Matrix<OBS_SPEC>& observation, RNG& rng){
         using ENVIRONMENT = rl::environments::Car<SPEC>;
         static_assert(OBS_SPEC::ROWS == 1);
-        static_assert(OBS_SPEC::COLS == ENVIRONMENT::OBSERVATION_DIM);
+        static_assert(OBS_SPEC::COLS == ENVIRONMENT::Observation::DIM);
         typedef typename SPEC::T T;
         set(observation, 0, 0, state.x);
         set(observation, 0, 1, state.y);
@@ -114,18 +120,18 @@ namespace rl_tools{
         set(observation, 0, 4, state.vy);
         set(observation, 0, 5, state.omega);
     }
-    template<typename DEVICE, typename SPEC, typename OBS_SPEC, typename RNG>
-    RL_TOOLS_FUNCTION_PLACEMENT static void observe(DEVICE& device, const rl::environments::CarTrack<SPEC>& env, const typename rl::environments::Car<SPEC>::Parameters& parameters, const typename rl::environments::CarTrack<SPEC>::State& state, Matrix<OBS_SPEC>& observation, RNG& rng){
+    template<typename DEVICE, typename SPEC, typename OBS_TYPE_SPEC, typename OBS_SPEC, typename RNG>
+    RL_TOOLS_FUNCTION_PLACEMENT static void observe(DEVICE& device, const rl::environments::CarTrack<SPEC>& env, const typename rl::environments::Car<SPEC>::Parameters& parameters, const typename rl::environments::CarTrack<SPEC>::State& state, const typename rl::environments::car::ObservationCarTrack<OBS_TYPE_SPEC>&, Matrix<OBS_SPEC>& observation, RNG& rng){
 #ifdef RL_TOOLS_DEBUG
         utils::assert_exit(device, env.initialized, "Environment not initialized");
 #endif
         using ENVIRONMENT = rl::environments::CarTrack<SPEC>;
         static_assert(OBS_SPEC::ROWS == 1);
-        static_assert(OBS_SPEC::COLS == ENVIRONMENT::OBSERVATION_DIM);
+        static_assert(OBS_SPEC::COLS == ENVIRONMENT::Observation::DIM);
         using T = typename SPEC::T;
         using TI = typename SPEC::TI;
-        auto observation_base = view(device, observation, matrix::ViewSpec<1, rl::environments::Car<SPEC>::OBSERVATION_DIM>{});
-        observe(device, (rl::environments::Car<SPEC>&)env, parameters, (typename rl::environments::Car<SPEC>::State&)state, observation_base, rng);
+        auto observation_base = view(device, observation, matrix::ViewSpec<1, ENVIRONMENT::Observation::DIM>{});
+        observe(device, (ENVIRONMENT&)env, parameters, (typename ENVIRONMENT::State&)state, typename ENVIRONMENT::Observation{}, observation_base, rng);
         constexpr TI N_DIRECTIONS = 3;
         constexpr TI NUM_STEPS = 50;
         constexpr T step_size = SPEC::TRACK_SCALE / 2;

@@ -10,8 +10,9 @@ namespace rl_tools::rl::environment_wrappers {
         using ENVIRONMENT = T_ENVIRONMENT;
         using T = typename ENVIRONMENT::T;
         using TI = typename ENVIRONMENT::TI;
-        static constexpr TI OBSERVATION_DIM = ENVIRONMENT::OBSERVATION_DIM;
-        static constexpr TI OBSERVATION_DIM_PRIVILEGED = ENVIRONMENT::OBSERVATION_DIM_PRIVILEGED;
+        using Observation = typename ENVIRONMENT::Observation;
+        using ObservationPrivileged = typename ENVIRONMENT::ObservationPrivileged;
+        static constexpr TI N_AGENTS = ENVIRONMENT::N_AGENTS;
         static constexpr TI ACTION_DIM = ENVIRONMENT::ACTION_DIM;
         static constexpr TI EPISODE_STEP_LIMIT = ENVIRONMENT::EPISODE_STEP_LIMIT;
         using Parameters = typename ENVIRONMENT::Parameters;

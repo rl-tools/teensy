@@ -28,6 +28,15 @@ namespace rl_tools::rl::environments::pendulum {
         using PARAMETERS = T_PARAMETERS;
     };
 
+    template <typename TI>
+    struct ObservationFourier{
+        static constexpr TI DIM = 3;
+    };
+    template <typename TI>
+    struct ObservationRaw{
+        static constexpr TI DIM = 2;
+    };
+
     template <typename T, typename TI>
     struct State{
         static constexpr TI DIM = 2;
@@ -41,17 +50,25 @@ RL_TOOLS_NAMESPACE_WRAPPER_END
 RL_TOOLS_NAMESPACE_WRAPPER_START
 namespace rl_tools::rl::environments{
     template <typename T_SPEC>
-    struct Pendulum: Environment{
+    struct Pendulum: Environment<typename T_SPEC::T, typename T_SPEC::TI>{
         using SPEC = T_SPEC;
         using T = typename SPEC::T;
         using TI = typename SPEC::TI;
         using State = pendulum::State<T, TI>;
         using Parameters = typename SPEC::PARAMETERS;
-        static constexpr TI OBSERVATION_DIM = 3;
-        static constexpr TI OBSERVATION_DIM_PRIVILEGED = OBSERVATION_DIM;
+        using Observation = pendulum::ObservationFourier<TI>;
+        using ObservationPrivileged = Observation;
+        static constexpr TI N_AGENTS = 1; // single agent
         static constexpr TI ACTION_DIM = 1;
         static constexpr TI EPISODE_STEP_LIMIT = 200;
     };
+    template <typename T_SPEC>
+    struct PendulumAsymmetric: Pendulum<T_SPEC>{
+        using PENDULUM = Pendulum<T_SPEC>;
+        using Observation = pendulum::ObservationRaw<typename PENDULUM::TI>;
+        using ObservationPrivileged = pendulum::ObservationFourier<typename PENDULUM::TI>;
+    };
+
 }
 RL_TOOLS_NAMESPACE_WRAPPER_END
 

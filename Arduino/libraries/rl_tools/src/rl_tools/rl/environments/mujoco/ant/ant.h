@@ -44,9 +44,13 @@ namespace rl_tools::rl::environments::mujoco{
             T q[SPEC::STATE_DIM_Q];
             T q_dot[SPEC::STATE_DIM_Q_DOT];
         };
+        template <typename SPEC>
+        struct Observation{
+            static constexpr typename SPEC::TI DIM = SPEC::STATE_DIM_Q - 2 + SPEC::STATE_DIM_Q_DOT;
+        };
     }
     template <typename T_SPEC>
-    struct Ant: Environment{
+    struct Ant: Environment<typename T_SPEC::T, typename T_SPEC::TI>{
         using SPEC = T_SPEC;
         using T = typename SPEC::T;
         static_assert(rl_tools::utils::typing::is_same_v<T, mjtNum>);
@@ -60,8 +64,8 @@ namespace rl_tools::rl::environments::mujoco{
         TI torso_id;
         T last_reward;
         bool last_terminated;
-        static constexpr TI OBSERVATION_DIM = SPEC::STATE_DIM_Q - 2 + SPEC::STATE_DIM_Q_DOT;
-        static constexpr TI OBSERVATION_DIM_PRIVILEGED = OBSERVATION_DIM;
+        using Observation = ant::Observation<SPEC>;
+        using ObservationPrivileged = Observation;
         static constexpr TI ACTION_DIM = SPEC::ACTION_DIM;
         static constexpr TI EPISODE_STEP_LIMIT = 1000;
     };

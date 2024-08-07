@@ -25,7 +25,9 @@ namespace rl_tools{
             ui.conn_info.ssl_connection = 0;
             ui.conn_info.userdata = &ui;
 
-            lws_set_log_level(LLL_ERR | LLL_WARN | LLL_NOTICE | LLL_INFO | LLL_DEBUG | LLL_PARSER | LLL_HEADER | LLL_EXT | LLL_CLIENT | LLL_LATENCY, NULL);
+            if(ui.verbose){
+                lws_set_log_level(LLL_ERR | LLL_WARN | LLL_NOTICE | LLL_INFO | LLL_DEBUG | LLL_PARSER | LLL_HEADER | LLL_EXT | LLL_CLIENT | LLL_LATENCY, NULL);
+            }
 
             ui.wsi = lws_client_connect_via_info(&ui.conn_info);
         }
@@ -94,6 +96,7 @@ namespace rl_tools{
 
         template <typename DEVICE, typename ENVIRONMENT>
         void send_message(DEVICE& device, ui_server::client::UIWebSocket<ENVIRONMENT>& ui, std::string message){
+            utils::assert_exit(device, message.length() > 0, "Message is empty");
             {
                 std::lock_guard guard(ui.message_queue_mutex);
                 ui.message_queue.push(message);

@@ -38,11 +38,11 @@ namespace rl_tools::rl::components::off_policy_runner{
             set(runner.episode_step, 0, env_i, 0);
             set(runner.episode_return, 0, env_i, 0);
         }
-        auto observation            = view<DEVICE, typename decltype(runner.buffers.observations           )::SPEC, 1, ENVIRONMENT::OBSERVATION_DIM           >(device, runner.buffers.observations           , env_i, 0);
+        auto observation            = view<DEVICE, typename decltype(runner.buffers.observations           )::SPEC, 1, ENVIRONMENT::Observation::DIM           >(device, runner.buffers.observations           , env_i, 0);
         auto observation_privileged = view<DEVICE, typename decltype(runner.buffers.observations_privileged)::SPEC, 1, SPEC::OBSERVATION_DIM_PRIVILEGED>(device, runner.buffers.observations_privileged, env_i, 0);
-        observe(device, env, parameters, state, observation, rng);
+        observe(device, env, parameters, state, typename ENVIRONMENT::Observation{}, observation, rng);
         if constexpr(SPEC::PARAMETERS::ASYMMETRIC_OBSERVATIONS){
-            observe_privileged(device, env, parameters, state, observation_privileged, rng);
+            observe(device, env, parameters, state, typename ENVIRONMENT::ObservationPrivileged{}, observation_privileged, rng);
         }
     }
     template<typename DEVICE, typename SPEC, typename POLICY, typename RNG>
@@ -50,9 +50,9 @@ namespace rl_tools::rl::components::off_policy_runner{
         using T = typename SPEC::T;
         using TI = typename SPEC::TI;
         using ENVIRONMENT = typename SPEC::ENVIRONMENT;
-        auto observation                 = view<DEVICE, typename decltype(runner.buffers.observations           )::SPEC, 1, ENVIRONMENT::OBSERVATION_DIM           >(device, runner.buffers.observations           , env_i, 0);
+        auto observation                 = view<DEVICE, typename decltype(runner.buffers.observations           )::SPEC, 1, ENVIRONMENT::Observation::DIM           >(device, runner.buffers.observations           , env_i, 0);
         auto observation_privileged      = view<DEVICE, typename decltype(runner.buffers.observations_privileged)::SPEC, 1, SPEC::OBSERVATION_DIM_PRIVILEGED>(device, runner.buffers.observations_privileged, env_i, 0);
-        auto next_observation            = view<DEVICE, typename decltype(runner.buffers.observations           )::SPEC, 1, ENVIRONMENT::OBSERVATION_DIM           >(device, runner.buffers.next_observations           , env_i, 0);
+        auto next_observation            = view<DEVICE, typename decltype(runner.buffers.observations           )::SPEC, 1, ENVIRONMENT::Observation::DIM           >(device, runner.buffers.next_observations           , env_i, 0);
         auto next_observation_privileged = view<DEVICE, typename decltype(runner.buffers.observations_privileged)::SPEC, 1, SPEC::OBSERVATION_DIM_PRIVILEGED>(device, runner.buffers.next_observations_privileged, env_i, 0);
 //        auto action_raw = view<DEVICE, typename decltype(runner.buffers.actions)::SPEC, 1, ENVIRONMENT::ACTION_DIM>(device, runner.buffers.actions, env_i, 0);
         auto& env = runner.envs[env_i];
@@ -66,9 +66,9 @@ namespace rl_tools::rl::components::off_policy_runner{
 
         T reward_value = reward(device, env, parameters, state, action, next_state, rng);
 
-        observe(device, env, parameters, next_state, next_observation, rng);
+        observe(device, env, parameters, next_state, typename ENVIRONMENT::Observation{}, next_observation, rng);
         if constexpr(SPEC::PARAMETERS::ASYMMETRIC_OBSERVATIONS) {
-            observe_privileged(device, env, parameters, next_state, next_observation_privileged, rng);
+            observe(device, env, parameters, next_state, typename ENVIRONMENT::ObservationPrivileged{}, next_observation_privileged, rng);
         }
 
         bool terminated_flag = terminated(device, env, parameters, next_state, rng);

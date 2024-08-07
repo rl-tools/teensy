@@ -5,10 +5,12 @@
 
 RL_TOOLS_NAMESPACE_WRAPPER_START
 namespace rl_tools::rl::components::on_policy_runner::per_env{
-    template <typename DEVICE, typename OBSERVATIONS_SPEC, typename SPEC, typename RNG> // todo: make this not PPO but general policy with output distribution
-    void prologue(DEVICE& device, Matrix<OBSERVATIONS_SPEC>& observations, rl::components::OnPolicyRunner<SPEC>& runner, RNG& rng, typename DEVICE::index_t env_i){
+    template <typename DEVICE, typename OBSERVATIONS_PRIVILEGED_SPEC, typename OBSERVATIONS_SPEC, typename SPEC, typename RNG> // todo: make this not PPO but general policy with output distribution
+    void prologue(DEVICE& device, Matrix<OBSERVATIONS_PRIVILEGED_SPEC>& observations_privileged, Matrix<OBSERVATIONS_SPEC>& observations, rl::components::OnPolicyRunner<SPEC>& runner, RNG& rng, typename DEVICE::index_t env_i){
         static_assert(OBSERVATIONS_SPEC::ROWS == SPEC::N_ENVIRONMENTS);
-        static_assert(OBSERVATIONS_SPEC::COLS == SPEC::ENVIRONMENT::OBSERVATION_DIM);
+        static_assert(OBSERVATIONS_SPEC::COLS == SPEC::ENVIRONMENT::Observation::DIM);
+        static_assert(OBSERVATIONS_PRIVILEGED_SPEC::ROWS == SPEC::N_ENVIRONMENTS);
+        static_assert(OBSERVATIONS_PRIVILEGED_SPEC::COLS == SPEC::ENVIRONMENT::ObservationPrivileged::DIM);
         auto& env = get(runner.environments, 0, env_i);
         auto& state = get(runner.states, 0, env_i);
         auto& parameters = get(runner.env_parameters, 0, env_i);
@@ -21,23 +23,33 @@ namespace rl_tools::rl::components::on_policy_runner::per_env{
             sample_initial_parameters(device, env, parameters, rng);
             sample_initial_state(device, env, parameters, state, rng);
         }
-        auto observation = view(device, observations, matrix::ViewSpec<1, SPEC::ENVIRONMENT::OBSERVATION_DIM>(), env_i, 0);
-        observe(device, env, parameters, state, observation, rng);
+        auto observation = row(device, observations, env_i);
+        observe(device, env, parameters, state, typename SPEC::ENVIRONMENT::Observation{}, observation, rng);
+        if(SPEC::ASYMMETRIC_OBSERVATIONS){
+            auto observation_privileged = row(device, observations_privileged, env_i);
+            observe(device, env, parameters, state, typename SPEC::ENVIRONMENT::ObservationPrivileged{}, observation_privileged, rng);
+        }
     }
     template <typename DEVICE, typename DATASET_SPEC, typename ACTIONS_MEAN_SPEC, typename ACTIONS_SPEC, typename ACTION_LOG_STD_SPEC, typename RNG> // todo: make this not PPO but general policy with output distribution
     void epilogue(DEVICE& device, rl::components::on_policy_runner::Dataset<DATASET_SPEC>& dataset, rl::components::OnPolicyRunner<typename DATASET_SPEC::SPEC>& runner, Matrix<ACTIONS_MEAN_SPEC>& actions_mean, Matrix<ACTIONS_SPEC>& actions, Matrix<ACTION_LOG_STD_SPEC>& action_log_std, RNG& rng, typename DEVICE::index_t pos, typename DEVICE::index_t env_i){
         using SPEC = typename DATASET_SPEC::SPEC;
         using T = typename SPEC::T;
         using TI = typename SPEC::TI;
+        constexpr TI N_AGENTS = SPEC::ENVIRONMENT::N_AGENTS;
+        constexpr TI ACTION_DIM = SPEC::ENVIRONMENT::ACTION_DIM;
+        static_assert(ACTION_DIM % N_AGENTS == 0);
+        constexpr TI PER_AGENT_ACTION_DIM = SPEC::ENVIRONMENT::ACTION_DIM/N_AGENTS;
+
         T action_log_prob = 0;
         for(TI action_i = 0; action_i < SPEC::ENVIRONMENT::ACTION_DIM; action_i++) {
             T action_mean = get(actions_mean, env_i, action_i);
 //                    std::stringstream topic;
 //                    topic << "action/" << action_i;
 //                    add_scalar(device, device.logger, topic.str(), action_mu);
-            static_assert(SPEC::ENVIRONMENT::ACTION_DIM == ACTION_LOG_STD_SPEC::COLS);
+
+            static_assert(ACTION_DIM == ACTION_LOG_STD_SPEC::COLS * N_AGENTS);
             static_assert(ACTION_LOG_STD_SPEC::ROWS == 1);
-            T current_action_log_std = get(action_log_std, 0, action_i);
+            T current_action_log_std = get(action_log_std, 0, action_i % PER_AGENT_ACTION_DIM);
             T action_std = math::exp(device.math, current_action_log_std);
             T action_noisy = random::normal_distribution::sample(typename DEVICE::SPEC::RANDOM(), action_mean, action_std, rng);
             action_log_prob += random::normal_distribution::log_prob(device.random, action_mean, current_action_log_std, action_noisy);

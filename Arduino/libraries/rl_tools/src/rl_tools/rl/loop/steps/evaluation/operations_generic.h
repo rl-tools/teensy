@@ -19,7 +19,17 @@ namespace rl_tools{
     void malloc(DEVICE& device, rl::loop::steps::evaluation::State<T_CONFIG>& ts){
         using STATE = rl::loop::steps::evaluation::State<T_CONFIG>;
         malloc(device, ts.env_eval);
+        malloc(device, ts.actor_deterministic_evaluation_buffers);
+        malloc(device, ts.evaluation_results);
         malloc(device, static_cast<typename STATE::NEXT&>(ts));
+    }
+    template <typename DEVICE, typename T_CONFIG>
+    void free(DEVICE& device, rl::loop::steps::evaluation::State<T_CONFIG>& ts){
+        using STATE = rl::loop::steps::evaluation::State<T_CONFIG>;
+        free(device, ts.env_eval);
+        free(device, ts.actor_deterministic_evaluation_buffers);
+        free(device, ts.evaluation_results);
+        free(device, static_cast<typename STATE::NEXT&>(ts));
     }
     template <typename DEVICE, typename T_CONFIG>
     void init(DEVICE& device, rl::loop::steps::evaluation::State<T_CONFIG>& ts, typename T_CONFIG::TI seed = 0){
@@ -30,11 +40,6 @@ namespace rl_tools{
         ts.rng_eval = random::default_engine(typename DEVICE::SPEC::RANDOM{}, seed);
     }
 
-    template <typename DEVICE, typename T_CONFIG>
-    void free(DEVICE& device, rl::loop::steps::evaluation::State<T_CONFIG>& ts){
-        using STATE = rl::loop::steps::evaluation::State<T_CONFIG>;
-        free(device, static_cast<typename STATE::NEXT&>(ts));
-    }
 
     template <typename DEVICE, typename CONFIG>
     bool step(DEVICE& device, rl::loop::steps::evaluation::State<CONFIG>& ts){
@@ -45,8 +50,13 @@ namespace rl_tools{
         if constexpr(PARAMETERS::DETERMINISTIC_EVALUATION == true){
             TI evaluation_index = ts.step / PARAMETERS::EVALUATION_INTERVAL;
             if(ts.step % PARAMETERS::EVALUATION_INTERVAL == 0 && evaluation_index < PARAMETERS::N_EVALUATIONS){
-                auto& result = ts.evaluation_results[evaluation_index];
-                evaluate(device, ts.env_eval, ts.ui, get_actor(ts), result, ts.actor_deterministic_evaluation_buffers, ts.rng_eval, false);
+                auto& result = get(ts.evaluation_results, 0, evaluation_index);
+                typename TS::EVALUATION_ACTOR_TYPE evaluation_actor;
+                malloc(device, evaluation_actor);
+                auto actor = get_actor(ts);
+                copy(device, device, actor, evaluation_actor);
+                evaluate(device, ts.env_eval, ts.ui, evaluation_actor, result, ts.actor_deterministic_evaluation_buffers, ts.rng_eval, ts.evaluation_mode, false);
+                free(device, evaluation_actor);
                 log(device, device.logger, "Step: ", ts.step, "/", CONFIG::CORE_PARAMETERS::STEP_LIMIT, " Mean return: ", result.returns_mean, " Mean episode length: ", result.episode_length_mean);
                 add_scalar(device, device.logger, "evaluation/return/mean", result.returns_mean);
                 add_scalar(device, device.logger, "evaluation/return/std", result.returns_std);

@@ -5,8 +5,25 @@
 #include "model.h"
 RL_TOOLS_NAMESPACE_WRAPPER_START
 namespace rl_tools{
-    template <typename DEVICE, typename SPEC, typename INPUT_SPEC, typename OUTPUT_SPEC, typename RNG, typename MODE = nn::mode::Default>
-    void evaluate(const DEVICE& device, nn_models::RandomUniform<SPEC>, Matrix<INPUT_SPEC>& input, Matrix<OUTPUT_SPEC>& output, nn_models::random_uniform::Buffer, RNG& rng, const nn::Mode<MODE>& mode = nn::Mode<nn::mode::Default>{}){
+
+    template <typename DEVICE, typename SPEC>
+    void malloc(const DEVICE& device, nn_models::RandomUniform<SPEC>){ }
+    template <typename DEVICE, typename SPEC>
+    void free(const DEVICE& device, nn_models::RandomUniform<SPEC>){ }
+    template <typename DEVICE>
+    void malloc(const DEVICE& device, nn_models::random_uniform::State){ }
+    template <typename DEVICE>
+    void free(const DEVICE& device, nn_models::random_uniform::State){ }
+    template <typename DEVICE>
+    void malloc(const DEVICE& device, nn_models::random_uniform::Buffer){ }
+    template <typename DEVICE>
+    void free(const DEVICE& device, nn_models::random_uniform::Buffer){ }
+
+    template <typename DEVICE, typename SPEC, typename RNG, typename MODE = mode::Default<>>
+    void reset(DEVICE& device, const nn_models::RandomUniform<SPEC>& model, nn_models::random_uniform::State& state, RNG& rng, const Mode<MODE>& mode = Mode<mode::Default<>>{}){ }
+
+    template <typename DEVICE, typename SPEC, typename INPUT_SPEC, typename OUTPUT_SPEC, typename RNG, typename MODE = mode::Default<>>
+    void evaluate(const DEVICE& device, nn_models::RandomUniform<SPEC>, Matrix<INPUT_SPEC>& input, Matrix<OUTPUT_SPEC>& output, nn_models::random_uniform::Buffer, RNG& rng, const Mode<MODE>& mode = Mode<mode::Default<>>{}){
         static_assert(SPEC::OUTPUT_DIM == OUTPUT_SPEC::COLS, "Output dimension mismatch");
         static_assert(SPEC::INPUT_DIM == INPUT_SPEC::COLS, "Input dimension mismatch");
         using T = typename SPEC::T;
@@ -23,9 +40,27 @@ namespace rl_tools{
             }
         }
     }
-    template <typename DEVICE, typename RNG>
-    void sample(DEVICE& device, nn_models::random_uniform::Buffer& buffers, RNG& rng){
+    template<typename DEVICE, typename MODULE_SPEC, typename MODE>
+    bool is_nan(DEVICE& device, nn_models::RandomUniform<MODULE_SPEC>& model, const Mode<MODE>& mode = Mode<mode::Default<>>{}){
+        return false;
+    }
+}
+RL_TOOLS_NAMESPACE_WRAPPER_END
 
+// Tensor proxies
+RL_TOOLS_NAMESPACE_WRAPPER_START
+namespace rl_tools{
+    template<typename DEVICE, typename LAYER_SPEC, typename INPUT_SPEC, typename OUTPUT_SPEC, typename RNG, typename MODE = mode::Default<>>
+    void evaluate(DEVICE& device, const nn_models::RandomUniform<LAYER_SPEC>& layer, const Tensor<INPUT_SPEC>& input, Tensor<OUTPUT_SPEC>& output, nn_models::random_uniform::Buffer& buffer, RNG& rng, const Mode<MODE>& mode = Mode<mode::Default<>>{}) {
+        auto matrix_view_input = matrix_view(device, input);
+        auto matrix_view_output = matrix_view(device, output);
+        evaluate(device, layer, matrix_view_input, matrix_view_output, buffer, rng, mode);
+    }
+    template<typename DEVICE, typename LAYER_SPEC, typename INPUT_SPEC, typename OUTPUT_SPEC, typename RNG, typename MODE = mode::Default<>>
+    void evaluate_step(DEVICE& device, const nn_models::RandomUniform<LAYER_SPEC>& layer, const Tensor<INPUT_SPEC>& input, nn_models::random_uniform::State&, Tensor<OUTPUT_SPEC>& output, nn_models::random_uniform::Buffer& buffer, RNG& rng, const Mode<MODE>& mode = Mode<mode::Default<>>{}) {
+        auto matrix_view_input = matrix_view(device, input);
+        auto matrix_view_output = matrix_view(device, output);
+        evaluate(device, layer, matrix_view_input, matrix_view_output, buffer, rng, mode);
     }
 }
 RL_TOOLS_NAMESPACE_WRAPPER_END

@@ -32,7 +32,6 @@ namespace rl_tools{
         malloc(device, ts.actor_buffers_eval);
         malloc(device, ts.actor_buffers[0]);
         malloc(device, ts.actor_buffers[1]);
-        malloc(device, ts.actor_deterministic_evaluation_buffers);
         for(auto& env: ts.envs){
             rl_tools::malloc(device, env);
         }
@@ -71,7 +70,6 @@ namespace rl_tools{
         copy(device_source, device_target, source.actor_buffers_eval, target.actor_buffers_eval);
         copy(device_source, device_target, source.actor_buffers[0], target.actor_buffers[0]);
         copy(device_source, device_target, source.actor_buffers[1], target.actor_buffers[1]);
-        copy(device_source, device_target, source.actor_deterministic_evaluation_buffers, target.actor_deterministic_evaluation_buffers);
 //        target.rng = source.rng;
         target.off_policy_runner.parameters.exploration_noise = source.off_policy_runner.parameters.exploration_noise;
         target.step = source.step;
@@ -93,7 +91,6 @@ namespace rl_tools{
         free(device, ts.actor_buffers_eval);
         free(device, ts.actor_buffers[0]);
         free(device, ts.actor_buffers[1]);
-        free(device, ts.actor_deterministic_evaluation_buffers);
         for(auto& env: ts.envs){
             rl_tools::free(device, env);
         }
@@ -104,41 +101,44 @@ namespace rl_tools{
         using CONFIG = T_CONFIG;
         set_step(device, device.logger, ts.step);
         bool finished = false;
-        using SAMPLE_AND_SQUASH_MODE = nn::Mode<nn::layers::sample_and_squash::mode::Sample<nn::mode::Default>>;
         if(ts.step >= CONFIG::CORE_PARAMETERS::N_WARMUP_STEPS){
-            step(device, ts.off_policy_runner, get_actor(ts), ts.actor_buffers_eval, ts.rng, SAMPLE_AND_SQUASH_MODE{});
+            step<1>(device, ts.off_policy_runner, get_actor(ts), ts.actor_buffers_eval, ts.rng);
         }
         else{
             typename CONFIG::EXPLORATION_POLICY exploration_policy;
             typename CONFIG::EXPLORATION_POLICY::template Buffer<> exploration_policy_buffer;
-            step(device, ts.off_policy_runner, exploration_policy, exploration_policy_buffer, ts.rng, SAMPLE_AND_SQUASH_MODE{});
+            step<0>(device, ts.off_policy_runner, exploration_policy, exploration_policy_buffer, ts.rng);
         }
-        if(ts.step >= CONFIG::CORE_PARAMETERS::N_WARMUP_STEPS){
+        bool train_critic_flag = ts.step >= CONFIG::CORE_PARAMETERS::N_WARMUP_STEPS_CRITIC && ts.step % CONFIG::CORE_PARAMETERS::SAC_PARAMETERS::CRITIC_TRAINING_INTERVAL == 0;
+        bool update_critic_targets_flag = ts.step >= CONFIG::CORE_PARAMETERS::N_WARMUP_STEPS_CRITIC && ts.step % CONFIG::CORE_PARAMETERS::SAC_PARAMETERS::CRITIC_TARGET_UPDATE_INTERVAL == 0;
+        bool train_actor_flag = ts.step >= CONFIG::CORE_PARAMETERS::N_WARMUP_STEPS_ACTOR && ts.step % CONFIG::CORE_PARAMETERS::SAC_PARAMETERS::ACTOR_TRAINING_INTERVAL == 0;
+        if(CONFIG::CORE_PARAMETERS::SHARED_BATCH && (train_critic_flag || train_actor_flag)){
+            gather_batch(device, ts.off_policy_runner, ts.critic_batch, ts.rng);
+            randn(device, ts.action_noise_critic, ts.rng);
+        }
+        if(train_critic_flag){
+            for(int critic_i = 0; critic_i < 2; critic_i++){
+                if constexpr(!CONFIG::CORE_PARAMETERS::SHARED_BATCH) {
+                    gather_batch(device, ts.off_policy_runner, ts.critic_batch, ts.rng);
+                    randn(device, ts.action_noise_critic, ts.rng);
+                }
+                train_critic(device, ts.actor_critic, critic_i == 0 ? ts.actor_critic.critic_1 : ts.actor_critic.critic_2, ts.critic_batch, ts.critic_optimizers[critic_i], ts.actor_buffers[critic_i], ts.critic_buffers[critic_i], ts.critic_training_buffers[critic_i], ts.action_noise_critic, ts.rng);
+            }
+        }
+        if(update_critic_targets_flag){
+            update_critic_targets(device, ts.actor_critic);
+        }
+        if(train_actor_flag){
+            randn(device, ts.action_noise_actor, ts.rng);
             if constexpr(CONFIG::CORE_PARAMETERS::SHARED_BATCH){
-                gather_batch(device, ts.off_policy_runner, ts.critic_batch, ts.rng);
-                randn(device, ts.action_noise_critic, ts.rng);
+                train_actor(device, ts.actor_critic, ts.critic_batch, ts.actor_optimizer, ts.actor_buffers[0], ts.critic_buffers[0], ts.actor_training_buffers, ts.action_noise_actor, ts.rng);
             }
-            if(ts.step % CONFIG::CORE_PARAMETERS::SAC_PARAMETERS::CRITIC_TRAINING_INTERVAL == 0){
-                for(int critic_i = 0; critic_i < 2; critic_i++){
-                    if constexpr(!CONFIG::CORE_PARAMETERS::SHARED_BATCH) {
-                        gather_batch(device, ts.off_policy_runner, ts.critic_batch, ts.rng);
-                        randn(device, ts.action_noise_critic, ts.rng);
-                    }
-                    train_critic(device, ts.actor_critic, critic_i == 0 ? ts.actor_critic.critic_1 : ts.actor_critic.critic_2, ts.critic_batch, ts.critic_optimizers[critic_i], ts.actor_buffers[critic_i], ts.critic_buffers[critic_i], ts.critic_training_buffers[critic_i], ts.action_noise_critic, ts.rng);
-                }
-            }
-            if(ts.step % CONFIG::CORE_PARAMETERS::SAC_PARAMETERS::ACTOR_TRAINING_INTERVAL == 0){
-                randn(device, ts.action_noise_actor, ts.rng);
-                if constexpr(CONFIG::CORE_PARAMETERS::SHARED_BATCH){
-                    train_actor(device, ts.actor_critic, ts.critic_batch, ts.actor_optimizer, ts.actor_buffers[0], ts.critic_buffers[0], ts.actor_training_buffers, ts.action_noise_actor, ts.rng);
-                }
-                else{
-                    gather_batch(device, ts.off_policy_runner, ts.actor_batch, ts.rng);
-                    train_actor(device, ts.actor_critic, ts.actor_batch, ts.actor_optimizer, ts.actor_buffers[0], ts.critic_buffers[0], ts.actor_training_buffers, ts.action_noise_actor, ts.rng);
-                }
-                update_critic_targets(device, ts.actor_critic);
+            else{
+                gather_batch(device, ts.off_policy_runner, ts.actor_batch, ts.rng);
+                train_actor(device, ts.actor_critic, ts.actor_batch, ts.actor_optimizer, ts.actor_buffers[0], ts.critic_buffers[0], ts.actor_training_buffers, ts.action_noise_actor, ts.rng);
             }
         }
+
         ts.step++;
         if(ts.step > CONFIG::CORE_PARAMETERS::STEP_LIMIT){
             return true;

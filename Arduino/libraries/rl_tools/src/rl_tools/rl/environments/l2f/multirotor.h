@@ -3,7 +3,7 @@
 #pragma once
 #define RL_TOOLS_RL_ENVIRONMENTS_L2F_MULTIROTOR_H
 
-#include <rl_tools/utils/generic/typing.h>
+#include "../../../utils/generic/typing.h"
 
 RL_TOOLS_NAMESPACE_WRAPPER_START
 namespace rl_tools::rl::environments::l2f{
@@ -67,6 +67,7 @@ namespace rl_tools::rl::environments::l2f{
                 T orientation;
                 T linear_velocity;
                 T angular_velocity;
+                T imu_acceleration;
             };
             struct ActionNoise{
                 T normalized_rpm; // std of additive gaussian noise onto the normalized action (-1, 1)
@@ -256,6 +257,46 @@ namespace rl_tools::rl::environments::l2f{
             static constexpr TI DIM = NEXT_COMPONENT::DIM + CURRENT_DIM;
         };
         template <typename T_T, typename T_TI, typename T_NEXT_COMPONENT = LastComponent<T_TI>>
+        struct IMUAccelerometerSpecification{
+            using T = T_T;
+            using TI = T_TI;
+            using NEXT_COMPONENT = T_NEXT_COMPONENT;
+            static constexpr bool PRIVILEGED = false;
+        };
+        template <typename T_T, typename T_TI, typename T_NEXT_COMPONENT = LastComponent<T_TI>>
+        struct IMUAccelerometerSpecificationPrivileged: IMUAccelerometerSpecification<T_T, T_TI, T_NEXT_COMPONENT>{
+            static constexpr bool PRIVILEGED = true;
+        };
+        template <typename SPEC>
+        struct IMUAccelerometer{
+            using T = typename SPEC::T;
+            using TI = typename SPEC::TI;
+            using NEXT_COMPONENT = typename SPEC::NEXT_COMPONENT;
+            static constexpr bool PRIVILEGED = SPEC::PRIVILEGED;
+            static constexpr TI CURRENT_DIM = 3;
+            static constexpr TI DIM = NEXT_COMPONENT::DIM + CURRENT_DIM;
+        };
+        template <typename T_T, typename T_TI, typename T_NEXT_COMPONENT = LastComponent<T_TI>>
+        struct MagnetometerSpecification{
+            using T = T_T;
+            using TI = T_TI;
+            using NEXT_COMPONENT = T_NEXT_COMPONENT;
+            static constexpr bool PRIVILEGED = false;
+        };
+        template <typename T_T, typename T_TI, typename T_NEXT_COMPONENT = LastComponent<T_TI>>
+        struct MagnetometerSpecificationPrivileged: IMUAccelerometerSpecification<T_T, T_TI, T_NEXT_COMPONENT>{
+            static constexpr bool PRIVILEGED = true;
+        };
+        template <typename SPEC>
+        struct Magnetometer{
+            using T = typename SPEC::T;
+            using TI = typename SPEC::TI;
+            using NEXT_COMPONENT = typename SPEC::NEXT_COMPONENT;
+            static constexpr bool PRIVILEGED = SPEC::PRIVILEGED;
+            static constexpr TI CURRENT_DIM = 2;
+            static constexpr TI DIM = NEXT_COMPONENT::DIM + CURRENT_DIM;
+        };
+        template <typename T_T, typename T_TI, typename T_NEXT_COMPONENT = LastComponent<T_TI>>
         struct RotorSpeedsSpecification {
             using T = T_T;
             using TI = T_TI;
@@ -315,6 +356,12 @@ namespace rl_tools::rl::environments::l2f{
         T angular_velocity[3];
     };
     template <typename T_T, typename T_TI, typename T_NEXT_COMPONENT>
+    struct StateLinearAcceleration: T_NEXT_COMPONENT{
+        using T = T_T;
+        T linear_acceleration[3]; // this is just to save computation when simulating IMU measurements. Wihtout this we would need to recalculate the acceleration in the observation operation. This is not part of the minimal state in the sense that the transition dynamics are independent of the acceleration given the other parts of the state and the action
+    };
+
+    template <typename T_T, typename T_TI, typename T_NEXT_COMPONENT>
     struct StatePoseErrorIntegral: T_NEXT_COMPONENT{
         using NEXT_COMPONENT = T_NEXT_COMPONENT;
         using T = T_T;
@@ -324,24 +371,25 @@ namespace rl_tools::rl::environments::l2f{
         T position_integral;
         T orientation_integral;
     };
-    template <typename T_T, typename T_TI, typename T_NEXT_COMPONENT>
+    template <typename T_T, typename T_TI, bool T_CLOSED_FORM, typename T_NEXT_COMPONENT>
     struct StateRotors: T_NEXT_COMPONENT{
         using T = T_T;
         using TI = T_TI;
         using NEXT_COMPONENT = T_NEXT_COMPONENT;
+        static constexpr bool CLOSED_FORM = T_CLOSED_FORM;
         static constexpr bool REQUIRES_INTEGRATION = true;
         static constexpr TI PARENT_DIM = NEXT_COMPONENT::DIM;
         static constexpr TI DIM = PARENT_DIM + 4;
         T rpm[4];
     };
-    template <typename T_T, typename T_TI, T_TI T_HISTORY_LENGTH, typename T_NEXT_COMPONENT>
-    struct StateRotorsHistory: StateRotors<T_T, T_TI, T_NEXT_COMPONENT>{
+    template <typename T_T, typename T_TI, T_TI T_HISTORY_LENGTH, bool T_CLOSED_FORM, typename T_NEXT_COMPONENT>
+    struct StateRotorsHistory: StateRotors<T_T, T_TI, T_CLOSED_FORM, T_NEXT_COMPONENT>{
         using T = T_T;
         using TI = T_TI;
-        using NEXT_COMPONENT = StateRotors<T, TI, T_NEXT_COMPONENT>;
+        using NEXT_COMPONENT = StateRotors<T, TI, T_CLOSED_FORM, T_NEXT_COMPONENT>;
         static constexpr bool REQUIRES_INTEGRATION = false;
         static constexpr TI HISTORY_LENGTH = T_HISTORY_LENGTH;
-        static constexpr TI PARENT_DIM = StateRotors<T, TI, NEXT_COMPONENT>::DIM;
+        static constexpr TI PARENT_DIM = StateRotors<T, TI, T_CLOSED_FORM, NEXT_COMPONENT>::DIM;
         static constexpr TI ACTION_DIM = 4;
         static constexpr TI DIM = PARENT_DIM + HISTORY_LENGTH * ACTION_DIM;
         T action_history[HISTORY_LENGTH][4];
@@ -401,6 +449,7 @@ namespace rl_tools::rl::environments{
 //        using REWARD_FUNCTION = typename SPEC::PARAMETERS::MDP::REWARD_FUNCTION;
 //        static constexpr TI STATE_DIM = 13;
         static constexpr TI ACTION_DIM = 4;
+        static constexpr TI EPISODE_STEP_LIMIT = 500;
 
         static constexpr TI ACTION_HISTORY_LENGTH = SPEC::STATIC_PARAMETERS::ACTION_HISTORY_LENGTH;
 

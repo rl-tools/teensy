@@ -4,6 +4,7 @@
 #define RL_TOOLS_CONTAINERS_TENSOR_OPERATIONS_GENERIC_H
 
 #include "tensor.h"
+#include "../../mode/mode.h"
 
 RL_TOOLS_NAMESPACE_WRAPPER_START
 namespace rl_tools{
@@ -25,7 +26,7 @@ namespace rl_tools{
     auto view_memory(DEVICE& device, const Tensor<SPEC>& tensor){
         static_assert(product(SHAPE{}) <= SPEC::SIZE);
         static_assert(tensor::dense_row_major_layout<SPEC, true>());
-        using VIEW_SPEC = tensor::Specification<typename SPEC::T, typename SPEC::TI, SHAPE, typename SPEC::STRIDE, false, true>; // note the last boolean signals constness and needs to be flipped for the non-const version of this function
+        using VIEW_SPEC = tensor::Specification<typename SPEC::T, typename SPEC::TI, SHAPE, true, typename SPEC::STRIDE, true>; // note the last boolean signals constness and needs to be flipped for the non-const version of this function
         using VIEW_TYPE = Tensor<VIEW_SPEC>;
         const VIEW_TYPE view{data(tensor)};
         return view;
@@ -37,7 +38,7 @@ namespace rl_tools{
         static_assert(tensor::dense_row_major_layout<SPEC, true>());
         using DENSE_STRIDE = tensor::RowMajorStride<SHAPE>;
         using STRIDE = tensor::Append<tensor::PopBack<DENSE_STRIDE>, get<length(typename SPEC::STRIDE{}) - 1>(typename SPEC::STRIDE{})>; // the RELAX_MAJOR in dense_row_major_layout allows for a stride in the last element which is accounted for here;
-        using VIEW_SPEC = tensor::Specification<typename SPEC::T, typename SPEC::TI, SHAPE, STRIDE, false, false>;
+        using VIEW_SPEC = tensor::Specification<typename SPEC::T, typename SPEC::TI, SHAPE, true, STRIDE, false>;
         using VIEW_TYPE = Tensor<VIEW_SPEC>;
         VIEW_TYPE view{data(tensor)};
         return view;
@@ -72,23 +73,32 @@ namespace rl_tools{
         VIEW_TYPE view{data(tensor) + offset};
         return view;
     }
+    template <typename DEVICE, typename SPEC, auto DIM=0, auto SIZE=0>
+    auto view_range(DEVICE& device, const Tensor<SPEC>& tensor, const tensor::ViewSpec<DIM, SIZE>){
+        return view_range(device, tensor, 0, tensor::ViewSpec<DIM, SIZE>{});
+    }
 
-    template <typename DEVICE, typename SPEC, auto DIM=0>
+    template <typename DEVICE, typename SPEC, auto DIM=0, auto SIZE=0>
+    auto view_range(DEVICE& device, Tensor<SPEC>& tensor, const tensor::ViewSpec<DIM, SIZE>){
+        return view_range(device, tensor, 0, tensor::ViewSpec<DIM, SIZE>{});
+    }
+
+    template <auto DIM=0, typename DEVICE, typename SPEC>
     auto view(DEVICE& device, const Tensor<SPEC>& tensor, typename DEVICE::index_t index, const tensor::ViewSpec<DIM> = {}){
         using NEW_SHAPE = tensor::Remove<typename SPEC::SHAPE, DIM>;
         using NEW_STRIDE = tensor::Remove<typename SPEC::STRIDE, DIM>;
-        using NEW_SPEC = tensor::Specification<typename SPEC::T, typename SPEC::TI, NEW_SHAPE, NEW_STRIDE, false, true>;
+        using NEW_SPEC = tensor::Specification<typename SPEC::T, typename SPEC::TI, NEW_SHAPE, true, NEW_STRIDE, true>;
         auto offset = index * get<DIM>(typename SPEC::STRIDE{});
 //        data_reference(view) = ;
         const Tensor<NEW_SPEC> view{data(tensor) + offset};
         return view;
     }
 
-    template <typename DEVICE, typename SPEC, auto DIM=0>
+    template <auto DIM=0, typename DEVICE, typename SPEC>
     auto view(DEVICE& device, Tensor<SPEC>& tensor, typename DEVICE::index_t index, const tensor::ViewSpec<DIM> = {}){
         using NEW_SHAPE = tensor::Remove<typename SPEC::SHAPE, DIM>;
         using NEW_STRIDE = tensor::Remove<typename SPEC::STRIDE, DIM>;
-        using NEW_SPEC = tensor::Specification<typename SPEC::T, typename SPEC::TI, NEW_SHAPE, NEW_STRIDE, false, false>;
+        using NEW_SPEC = tensor::Specification<typename SPEC::T, typename SPEC::TI, NEW_SHAPE, true, NEW_STRIDE, false>;
         auto offset = index * get<DIM>(typename SPEC::STRIDE{});
 //        data_reference(view) = ;
         Tensor<NEW_SPEC> view{data(tensor) + offset};
@@ -115,7 +125,7 @@ namespace rl_tools{
         using STRIDE = typename SPEC::STRIDE;
         using NEW_STRIDE_INTERMEDIATE = tensor::Replace<STRIDE, get<DIM_2>(STRIDE{}), DIM_1>;
         using NEW_STRIDE = tensor::Replace<NEW_STRIDE_INTERMEDIATE, get<DIM_1>(STRIDE{}), DIM_2>;
-        using NEW_SPEC = tensor::Specification<typename SPEC::T, TI, NEW_SHAPE, NEW_STRIDE, false, true>; // const here
+        using NEW_SPEC = tensor::Specification<typename SPEC::T, TI, NEW_SHAPE, true, NEW_STRIDE, true>; // const here
         const Tensor<NEW_SPEC> view{data(tensor)};
         return view;
     }
@@ -131,7 +141,7 @@ namespace rl_tools{
         using STRIDE = typename SPEC::STRIDE;
         using NEW_STRIDE_INTERMEDIATE = tensor::Replace<STRIDE, get<DIM_2>(STRIDE{}), DIM_1>;
         using NEW_STRIDE = tensor::Replace<NEW_STRIDE_INTERMEDIATE, get<DIM_1>(STRIDE{}), DIM_2>;
-        using NEW_SPEC = tensor::Specification<typename SPEC::T, TI, NEW_SHAPE, NEW_STRIDE, false, false>; // non-const here
+        using NEW_SPEC = tensor::Specification<typename SPEC::T, TI, NEW_SHAPE, true, NEW_STRIDE, false>; // non-const here
         Tensor<NEW_SPEC> view;
         data_reference(view) = data(tensor);
         return view;
@@ -336,23 +346,45 @@ namespace rl_tools{
                 return acc + a * b;
             }
         }
-        template <typename PARAMETER, typename T_ACCUMULATOR_TYPE, typename T_CURRENT_TYPE, auto T_OPERATION>
+        template <typename PARAMETER, typename T_ACCUMULATOR_TYPE, typename T_CURRENT_TYPE, auto T_UNARY_REDUCE_OPERATION>
         struct UnaryReduceOperation{
             using ACCUMULATOR_TYPE = T_ACCUMULATOR_TYPE;
             using CURRENT_TYPE = T_CURRENT_TYPE;
-            static constexpr auto OPERATION = T_OPERATION;
+            static constexpr auto UNARY_REDUCE_OPERATION = T_UNARY_REDUCE_OPERATION;
             PARAMETER parameter;
             ACCUMULATOR_TYPE initial_value;
         };
         namespace unary_reduce_operations{
             namespace impl{
-                template <typename PARAMETER, typename ACCUMULATOR_TYPE, typename CURRENT_TYPE>
-                ACCUMULATOR_TYPE sum(const PARAMETER& parameter, const ACCUMULATOR_TYPE& accumulator, CURRENT_TYPE current){
+                template <typename DEVICE, typename PARAMETER, typename ACCUMULATOR_TYPE, typename CURRENT_TYPE>
+                ACCUMULATOR_TYPE sum(DEVICE, const PARAMETER& parameter, const ACCUMULATOR_TYPE& accumulator, CURRENT_TYPE current){
                     return accumulator + current;
                 }
+                template <typename DEVICE, typename PARAMETER, typename CURRENT_TYPE>
+                CURRENT_TYPE sum_reduce(DEVICE, const PARAMETER& parameter, CURRENT_TYPE a, CURRENT_TYPE b){
+                    return a + b;
+                }
+                template <typename DEVICE, typename PARAMETER, typename CURRENT_TYPE>
+                bool is_nan(DEVICE& device, const PARAMETER& parameter, const bool& accumulator, CURRENT_TYPE current){
+                    return accumulator || math::is_nan(device, current);
+                }
+                template <typename DEVICE, typename PARAMETER, typename CURRENT_TYPE>
+                bool is_finite(DEVICE& device, const PARAMETER& parameter, const bool& accumulator, CURRENT_TYPE current){
+                    return accumulator || math::is_finite(device, current);
+                }
+                template <typename DEVICE, typename PARAMETER>
+                bool is_nan_reduce(DEVICE& device, const PARAMETER& parameter, bool a, bool b){
+                    return a || b;
+                }
             }
-            template <typename T>
-            using Sum = UnaryReduceOperation<OperationEmptyParameter, T, T, impl::sum<OperationEmptyParameter, T, T>>;
+            template <typename DEVICE, typename T>
+            using Sum = UnaryReduceOperation<OperationEmptyParameter, T, T, impl::sum<DEVICE, OperationEmptyParameter, T, T>>;
+            template <typename TARGET_TYPE, typename DEVICE, typename T>
+            using CastSum = UnaryReduceOperation<OperationEmptyParameter, T, T, impl::sum<DEVICE, OperationEmptyParameter, TARGET_TYPE, TARGET_TYPE>>;
+            template <typename DEVICE, typename T>
+            using IsNan = UnaryReduceOperation<OperationEmptyParameter, bool, T, impl::is_nan<DEVICE, OperationEmptyParameter, T>>;
+            template <typename DEVICE, typename T>
+            using IsFinite = UnaryReduceOperation<OperationEmptyParameter, bool, T, impl::is_finite<DEVICE, OperationEmptyParameter, T>>;
         }
         template <typename PARAMETER, typename T_ACCUMULATOR_TYPE, typename T_CURRENT_TYPE1, typename T_CURRENT_TYPE2, auto T_OPERATION, auto T_REDUCE_OPERATION>
         struct BinaryReduceOperation{
@@ -551,31 +583,52 @@ namespace rl_tools{
     }
 
     template<typename DEVICE, typename SPEC, auto UNARY_REDUCE_OPERATION, typename ACCUMULATOR_TYPE, typename CURRENT_TYPE, typename OPERATION_PARAMETER>
-    ACCUMULATOR_TYPE unary_associative_reduce(DEVICE& device, const tensor::UnaryReduceOperation<OPERATION_PARAMETER, ACCUMULATOR_TYPE, CURRENT_TYPE, UNARY_REDUCE_OPERATION>& op, Tensor<SPEC>& t){
+    ACCUMULATOR_TYPE _unary_associative_reduce(DEVICE& device, const tensor::UnaryReduceOperation<OPERATION_PARAMETER, ACCUMULATOR_TYPE, CURRENT_TYPE, UNARY_REDUCE_OPERATION>& op, const Tensor<SPEC>& t, ACCUMULATOR_TYPE accumulator){
         using T = typename SPEC::T;
         using TI = typename DEVICE::index_t;
         if constexpr(length(typename SPEC::SHAPE{}) > 1){
-            ACCUMULATOR_TYPE accumulator = op.initial_value;
             for(TI i=0; i < get<0>(typename SPEC::SHAPE{}); ++i){
                 auto next_t = view(device, t, i);
-                accumulator = UNARY_REDUCE_OPERATION(op.parameter, accumulator, unary_associative_reduce(device, op, next_t));
+                accumulator = _unary_associative_reduce(device, op, next_t, accumulator);
             }
             return accumulator;
         }
         else{
-            ACCUMULATOR_TYPE accumulator = op.initial_value;
             for(TI i=0; i < get<0>(typename SPEC::SHAPE{}); i++){
                 T t_value = get(device, t, i);
-                accumulator = UNARY_REDUCE_OPERATION(op.parameter, accumulator, t_value);
+                accumulator = UNARY_REDUCE_OPERATION(device.math, op.parameter, accumulator, static_cast<CURRENT_TYPE>(t_value));
             }
             return accumulator;
         }
     }
+    template<typename DEVICE, typename SPEC, auto UNARY_REDUCE_OPERATION, typename ACCUMULATOR_TYPE, typename CURRENT_TYPE, typename OPERATION_PARAMETER>
+    ACCUMULATOR_TYPE unary_associative_reduce(DEVICE& device, const tensor::UnaryReduceOperation<OPERATION_PARAMETER, ACCUMULATOR_TYPE, CURRENT_TYPE, UNARY_REDUCE_OPERATION>& op, const Tensor<SPEC>& t){
+        return _unary_associative_reduce(device, op, t, op.initial_value);
+    }
 
     template<typename DEVICE, typename SPEC>
     typename SPEC::T sum(DEVICE& device, Tensor<SPEC>& t){
-        tensor::unary_reduce_operations::Sum<typename SPEC::T> op;
+        static_assert(!utils::typing::is_same_v<typename SPEC::T, bool>, "Sum would work like or for boolean tensors");
+        tensor::unary_reduce_operations::Sum<decltype(device.math), typename SPEC::T> op;
         op.initial_value = 0;
+        return unary_associative_reduce(device, op, t);
+    }
+    template<typename TARGET_TYPE, typename DEVICE, typename SPEC>
+    TARGET_TYPE cast_sum(DEVICE& device, Tensor<SPEC>& t){
+        tensor::unary_reduce_operations::CastSum<TARGET_TYPE, decltype(device.math), TARGET_TYPE> op;
+        op.initial_value = 0;
+        return unary_associative_reduce(device, op, t);
+    }
+    template<typename DEVICE, typename SPEC, typename MODE = mode::Default<>>
+    typename SPEC::T is_nan(DEVICE& device, const Tensor<SPEC>& t, const Mode<MODE>& mode = {}){
+        tensor::unary_reduce_operations::IsNan<decltype(device.math), typename SPEC::T> op;
+        op.initial_value = false;
+        return unary_associative_reduce(device, op, t);
+    }
+    template<typename DEVICE, typename SPEC>
+    typename SPEC::T is_finite(DEVICE& device, const Tensor<SPEC>& t){
+        tensor::unary_reduce_operations::IsFinite<decltype(device.math), typename SPEC::T> op;
+        op.initial_value = false;
         return unary_associative_reduce(device, op, t);
     }
 
@@ -634,6 +687,9 @@ namespace rl_tools{
     }
     template<typename DEVICE, typename SPEC_1, typename SPEC_2, typename SPEC_OUTPUT>
     void multiply_accumulate(DEVICE& device, Tensor<SPEC_1>& t1, Tensor<SPEC_2>& t2, Tensor<SPEC_OUTPUT>& t_output){
+#ifdef RL_TOOLS_ENABLE_TRACY
+        ZoneScopedN("tensor::multiply_accumulate");
+#endif
         ternary_operation(device, tensor::Operation<tensor::ternary_operations::multiply_accumulate<typename SPEC_1::T>, tensor::OperationEmptyParameter>{}, t1, t2, t_output);
     }
 
@@ -663,7 +719,7 @@ namespace rl_tools{
     }
     template<typename DEVICE, typename SPEC_1, typename SPEC_2>
     typename SPEC_1::T abs_diff(DEVICE& device, const Tensor<SPEC_1>& t1, const Tensor<SPEC_2>& t2){
-        tensor::binary_reduce_operations::AbsoluteDifference<DEVICE, typename SPEC_1::T, typename SPEC_2::T> op;
+        tensor::binary_reduce_operations::AbsoluteDifference<DEVICE, typename SPEC_1::T, typename SPEC_2::T> op{};
         op.initial_value = 0;
         return binary_associative_reduce(device, op, t1, t2);
     }
@@ -719,6 +775,7 @@ namespace rl_tools{
     }
 
 
+#ifndef RL_TOOLS_NN_DISABLE_GENERIC_FORWARD_BACKWARD
     template<typename DEVICE, typename SPEC_1, typename SPEC_2, typename SPEC_OUT>
     void matrix_multiply(DEVICE& device, Tensor<SPEC_1>& t1, Tensor<SPEC_2>& t2, Tensor<SPEC_OUT>& result){
         static_assert(length(typename SPEC_1::SHAPE{}) == 2);
@@ -759,6 +816,7 @@ namespace rl_tools{
             }
         }
     }
+#endif
 //    template<typename DEVICE, typename SPEC, typename = utils::typing::enable_if_t<length(typename SPEC::SHAPE{}) == 2, typename SPEC::TI>>
 //    auto matrix_view(DEVICE& device, Tensor<SPEC>& t){
 //        static_assert(tensor::generalized_row_major<typename SPEC::SHAPE, typename SPEC::STRIDE>());
@@ -784,7 +842,7 @@ namespace rl_tools{
         using ROW_MAJOR_STRIDE = tensor::RowMajorStride<typename SPEC::SHAPE>;
         static_assert(tensor::same_dimensions_shape<ROW_MAJOR_STRIDE, typename SPEC::STRIDE>(), "Stride must be row major for creating a matrix view");
         using LAYOUT = matrix::layouts::Fixed<typename SPEC::TI, 1, get<N_DIM-1>(typename SPEC::STRIDE{})>;
-        const MatrixDynamic<matrix::Specification<typename SPEC::T, typename SPEC::TI, 1, get<N_DIM-1>(typename SPEC::SHAPE{})>> view{data(t)};
+        const Matrix<matrix::Specification<typename SPEC::T, typename SPEC::TI, 1, get<N_DIM-1>(typename SPEC::SHAPE{}), true, LAYOUT>> view{data(t)};
         return view;
     }
     template<typename DEVICE, typename SPEC>
@@ -795,7 +853,7 @@ namespace rl_tools{
         using ROW_MAJOR_STRIDE = tensor::RowMajorStride<typename SPEC::SHAPE>;
         static_assert(tensor::same_dimensions_shape<ROW_MAJOR_STRIDE, typename SPEC::STRIDE>(), "Stride must be row major for creating a matrix view");
         using LAYOUT = matrix::layouts::Fixed<typename SPEC::TI, 1, get<N_DIM-1>(typename SPEC::STRIDE{})>;
-        const MatrixDynamic<matrix::Specification<typename SPEC::T, typename SPEC::TI, 1, get<N_DIM-1>(typename SPEC::SHAPE{})>> view{data(t)};
+        const Matrix<matrix::Specification<typename SPEC::T, typename SPEC::TI, 1, get<N_DIM-1>(typename SPEC::SHAPE{}), true, LAYOUT>> view{data(t)};
         return view;
     }
     template<typename DEVICE, typename SPEC>
@@ -808,12 +866,11 @@ namespace rl_tools{
         }
         else{
             static_assert(tensor::generalized_row_major<typename SPEC::SHAPE, typename SPEC::STRIDE>());
-            using ROW_MAJOR_STRIDE = tensor::RowMajorStride<typename SPEC::SHAPE>;
-            static_assert(tensor::same_dimensions_shape<ROW_MAJOR_STRIDE, typename SPEC::STRIDE>(), "Stride must be row major for creating a matrix view");
+            static_assert(tensor::dense_row_major_layout<SPEC, true>(), "Stride must be row major for creating a matrix view");
             using PROD = tensor::CumulativeProduct<tensor::PopBack<typename SPEC::SHAPE>>;
             constexpr TI TOTAL_ROWS = get<0>(PROD{});
             using LAYOUT = matrix::layouts::Fixed<typename SPEC::TI, get<N_DIM-2>(typename SPEC::STRIDE{}), get<N_DIM-1>(typename SPEC::STRIDE{})>;
-            const MatrixDynamic<matrix::Specification<typename SPEC::T, typename SPEC::TI, TOTAL_ROWS, get<N_DIM-1>(typename SPEC::SHAPE{})>> view{data(t)};
+            const Matrix<matrix::Specification<typename SPEC::T, typename SPEC::TI, TOTAL_ROWS, get<N_DIM-1>(typename SPEC::SHAPE{}), true, LAYOUT, true>> view{data(t)};
             return view;
         }
     }
@@ -827,12 +884,11 @@ namespace rl_tools{
         }
         else{
             static_assert(tensor::generalized_row_major<typename SPEC::SHAPE, typename SPEC::STRIDE>());
-            using ROW_MAJOR_STRIDE = tensor::RowMajorStride<typename SPEC::SHAPE>;
-            static_assert(tensor::same_dimensions_shape<ROW_MAJOR_STRIDE, typename SPEC::STRIDE>(), "Stride must be row major for creating a matrix view");
+            static_assert(tensor::dense_row_major_layout<SPEC, true>(), "Stride must be row major for creating a matrix view");
             using PROD = tensor::CumulativeProduct<tensor::PopBack<typename SPEC::SHAPE>>;
             constexpr TI TOTAL_ROWS = get<0>(PROD{});
             using LAYOUT = matrix::layouts::Fixed<typename SPEC::TI, get<N_DIM-2>(typename SPEC::STRIDE{}), get<N_DIM-1>(typename SPEC::STRIDE{})>;
-            const MatrixDynamic<matrix::Specification<typename SPEC::T, typename SPEC::TI, TOTAL_ROWS, get<N_DIM-1>(typename SPEC::SHAPE{})>> view{data(t)};
+            const Matrix<matrix::Specification<typename SPEC::T, typename SPEC::TI, TOTAL_ROWS, get<N_DIM-1>(typename SPEC::SHAPE{}), true, LAYOUT, false>> view{data(t)};
             return view;
         }
     }
@@ -847,7 +903,7 @@ namespace rl_tools{
         using STRIDE = typename SPEC::STRIDE;
         constexpr TI OLD_LAST_STRIDE = get<length(STRIDE{}) - 1>(STRIDE{});
         using NEW_STRIDE = tensor::PopFront<tensor::CumulativeProduct<tensor::Append<RESHAPE, OLD_LAST_STRIDE>>>;
-        using NEW_SPEC = tensor::Specification<T, TI, RESHAPE, NEW_STRIDE>;
+        using NEW_SPEC = tensor::Specification<T, TI, RESHAPE, true, NEW_STRIDE>;
         return Tensor<NEW_SPEC>{data(t)};
     }
     template<typename DEVICE, typename SPEC, typename RESHAPE>
@@ -862,7 +918,7 @@ namespace rl_tools{
         using STRIDE = typename SPEC::STRIDE;
         constexpr TI OLD_LAST_STRIDE = get<length(STRIDE{}) - 1>(STRIDE{});
         using NEW_STRIDE = tensor::PopFront<tensor::CumulativeProduct<tensor::Append<RESHAPE, OLD_LAST_STRIDE>>>;
-        using NEW_SPEC = tensor::Specification<T, TI, RESHAPE, NEW_STRIDE>;
+        using NEW_SPEC = tensor::Specification<T, TI, RESHAPE, true, NEW_STRIDE>;
         return Tensor<NEW_SPEC>{data(t)};
     }
     template <typename DEVICE, typename MATRIX_SPEC>
@@ -873,7 +929,7 @@ namespace rl_tools{
         constexpr TI ROW_PITCH = MATRIX_SPEC::LAYOUT::template ROW_PITCH<MATRIX_SPEC::ROWS, MATRIX_SPEC::COLS>;
         constexpr TI COL_PITCH = MATRIX_SPEC::LAYOUT::template COL_PITCH<MATRIX_SPEC::ROWS, MATRIX_SPEC::COLS>;
         using STRIDE = tensor::Stride<TI, ROW_PITCH, COL_PITCH>;
-        using SPEC = tensor::Specification<T, TI, SHAPE, STRIDE>;
+        using SPEC = tensor::Specification<T, TI, SHAPE, true, STRIDE>;
         return Tensor<SPEC>{m._data};
     }
     template <typename DEVICE, typename MATRIX_SPEC>
@@ -884,7 +940,7 @@ namespace rl_tools{
         constexpr TI ROW_PITCH = MATRIX_SPEC::LAYOUT::template ROW_PITCH<MATRIX_SPEC::ROWS, MATRIX_SPEC::COLS>;
         constexpr TI COL_PITCH = MATRIX_SPEC::LAYOUT::template COL_PITCH<MATRIX_SPEC::ROWS, MATRIX_SPEC::COLS>;
         using STRIDE = tensor::Stride<TI, ROW_PITCH, COL_PITCH>;
-        using SPEC = tensor::Specification<T, TI, SHAPE, STRIDE, false, true>;
+        using SPEC = tensor::Specification<T, TI, SHAPE, true, STRIDE, true>;
         return Tensor<SPEC>{m._data};
     }
     template <typename DEVICE, typename SPEC>
@@ -894,6 +950,27 @@ namespace rl_tools{
     template <typename DEVICE, typename SPEC>
     auto to_tensor(DEVICE& device, Tensor<SPEC>& t){
         return t;
+    }
+    template <typename DEVICE, typename SPEC>
+    auto squeeze(DEVICE& device, const Tensor<SPEC>& m){
+        using TI = typename SPEC::TI;
+        using T = typename SPEC::T;
+        constexpr TI N_DIM = length(typename SPEC::SHAPE{});
+        static_assert(N_DIM > 1, "Cannot squeeze a tensor with less than 2 dimensions");
+        static_assert(get<0>(typename SPEC::SHAPE{}) == 1, "Cannot squeeze a tensor with a dimension size greater than 1");
+        using NEW_SHAPE = tensor::PopFront<typename SPEC::SHAPE>;
+        using NEW_STRIDE = tensor::PopFront<typename SPEC::STRIDE>;
+        using NEW_SPEC = tensor::Specification<T, TI, NEW_SHAPE, true, NEW_STRIDE>;
+        return Tensor<NEW_SPEC>{data(m)};
+    }
+    template <typename DEVICE, typename SPEC>
+    auto unsqueeze(DEVICE& device, const Tensor<SPEC>& m){
+        using TI = typename SPEC::TI;
+        using T = typename SPEC::T;
+        using NEW_SHAPE = tensor::Insert<typename SPEC::SHAPE, 1, 0>;
+        using NEW_STRIDE = tensor::Insert<typename SPEC::STRIDE, get<0>(typename SPEC::STRIDE{}) * get<0>(typename SPEC::SHAPE{}), 0>;
+        using NEW_SPEC = tensor::Specification<T, TI, NEW_SHAPE, true, NEW_STRIDE>;
+        return Tensor<NEW_SPEC>{data(m)};
     }
 }
 RL_TOOLS_NAMESPACE_WRAPPER_END

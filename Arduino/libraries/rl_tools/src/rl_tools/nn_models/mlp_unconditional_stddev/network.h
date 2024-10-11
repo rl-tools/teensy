@@ -13,8 +13,8 @@ namespace rl_tools::nn_models::mlp_unconditional_stddev {
         using SPEC = T_SPEC;
         using T = typename SPEC::T;
         using TI = typename SPEC::TI;
-        using LOG_STD_CONTAINER_SPEC = matrix::Specification<T, TI, 1, SPEC::OUTPUT_DIM>;
-        using LOG_STD_CONTAINER_TYPE = typename SPEC::CONTAINER_TYPE_TAG::template type<LOG_STD_CONTAINER_SPEC>;
+        using LOG_STD_CONTAINER_SPEC = matrix::Specification<T, TI, 1, SPEC::OUTPUT_DIM, SPEC::DYNAMIC_ALLOCATION>;
+        using LOG_STD_CONTAINER_TYPE = Matrix<LOG_STD_CONTAINER_SPEC>;
         using LOG_STD_PARAMETER_SPEC = typename SPEC::PARAMETER_TYPE::template spec<LOG_STD_CONTAINER_TYPE, nn::parameters::groups::Output, nn::parameters::categories::Weights>;
         typename SPEC::PARAMETER_TYPE::template instance<LOG_STD_PARAMETER_SPEC> log_std;
         template <typename TT_SPEC>
@@ -25,25 +25,16 @@ namespace rl_tools::nn_models::mlp_unconditional_stddev {
     template <typename SPEC, template <typename> typename BASE = nn_models::mlp::NeuralNetworkGradient>
     struct NeuralNetworkGradient: NeuralNetworkBackward<SPEC, BASE>{};
 
-    template<typename CAPABILITY, typename SPEC>
-    using _NeuralNetwork =
-    typename utils::typing::conditional_t<CAPABILITY::TAG == nn::LayerCapability::Forward,
-            NeuralNetworkForward<nn_models::mlp::CapabilitySpecification<CAPABILITY, SPEC>>,
-    typename utils::typing::conditional_t<CAPABILITY::TAG == nn::LayerCapability::Backward,
-            NeuralNetworkBackward<nn_models::mlp::CapabilitySpecification<CAPABILITY, SPEC>>,
-    typename utils::typing::conditional_t<CAPABILITY::TAG == nn::LayerCapability::Gradient,
-            NeuralNetworkGradient<nn_models::mlp::CapabilitySpecification<CAPABILITY, SPEC>>, void>>>;
+    template<typename CONFIG, typename CAPABILITY, typename INPUT_SHAPE>
+    using NeuralNetwork =
+    typename utils::typing::conditional_t<CAPABILITY::TAG == nn::LayerCapability::Forward, NeuralNetworkForward<nn_models::mlp::Specification<CONFIG, CAPABILITY, INPUT_SHAPE>>,
+    typename utils::typing::conditional_t<CAPABILITY::TAG == nn::LayerCapability::Backward, NeuralNetworkBackward<nn_models::mlp::Specification<CONFIG, CAPABILITY, INPUT_SHAPE>>,
+    typename utils::typing::conditional_t<CAPABILITY::TAG == nn::LayerCapability::Gradient, NeuralNetworkGradient<nn_models::mlp::Specification<CONFIG, CAPABILITY, INPUT_SHAPE>>, void>>>;
 
-    template<typename T_CAPABILITY, typename T_SPEC>
-    struct NeuralNetwork: _NeuralNetwork<T_CAPABILITY, T_SPEC>{
-        template <typename TT_CAPABILITY>
-        using CHANGE_CAPABILITY = NeuralNetwork<TT_CAPABILITY, T_SPEC>;
-    };
-
-    template <typename T_SPEC>
-    struct BindSpecification{
-        template <typename CAPABILITY>
-        using NeuralNetwork = nn_models::mlp_unconditional_stddev::NeuralNetwork<CAPABILITY, T_SPEC>;
+    template <typename CONFIG>
+    struct BindConfiguration{
+        template <typename CAPABILITY, typename INPUT_SHAPE>
+        using Layer = nn_models::mlp_unconditional_stddev::NeuralNetwork<CONFIG, CAPABILITY, INPUT_SHAPE>;
     };
 
 

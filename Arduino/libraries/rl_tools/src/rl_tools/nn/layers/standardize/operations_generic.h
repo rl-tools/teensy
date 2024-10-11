@@ -6,7 +6,6 @@
 #include "../../../containers/matrix/matrix.h"
 
 #include "../../../nn/nn.h"
-#include "../../../nn/mode.h"
 #include "../../../nn/parameters/parameters.h"
 #include "layer.h"
 
@@ -32,6 +31,12 @@ namespace rl_tools{
         free(device, static_cast<nn::layers::standardize::LayerForward<SPEC>&>(layer));
         free(device, layer.output);
     }
+    template<typename DEVICE>
+    void malloc(DEVICE& device, nn::layers::standardize::State& state) { } // no-op
+    template<typename DEVICE, typename SPEC, typename RNG, typename MODE>
+    void reset(DEVICE& device, const nn::layers::standardize::LayerForward<SPEC>& layer, nn::layers::standardize::State& state, RNG&, Mode<MODE> mode = Mode<mode::Default<>>{}) { } // no-op
+    template<typename DEVICE>
+    void free(DEVICE& device, nn::layers::standardize::State& state) { } // no-op
     template <typename DEVICE>
     void malloc(DEVICE& device, nn::layers::standardize::Buffer& buffer){ }
     template <typename DEVICE>
@@ -55,8 +60,8 @@ namespace rl_tools{
             set(layer.precision.parameters, 0, i, precision);
         }
     }
-    template<typename DEVICE, typename LAYER_SPEC, typename INPUT_SPEC, typename OUTPUT_SPEC, typename RNG, typename MODE = nn::mode::Default>
-    void evaluate(DEVICE& device, const nn::layers::standardize::LayerForward<LAYER_SPEC>& layer, const Matrix<INPUT_SPEC>& input, Matrix<OUTPUT_SPEC>& output, nn::layers::standardize::Buffer& buffer, RNG& rng, const nn::Mode<MODE>& mode = nn::Mode<nn::mode::Default>{}) {
+    template<typename DEVICE, typename LAYER_SPEC, typename INPUT_SPEC, typename OUTPUT_SPEC, typename RNG, typename MODE = mode::Default<>>
+    void evaluate(DEVICE& device, const nn::layers::standardize::LayerForward<LAYER_SPEC>& layer, const Matrix<INPUT_SPEC>& input, Matrix<OUTPUT_SPEC>& output, nn::layers::standardize::Buffer& buffer, RNG& rng, const Mode<MODE>& mode = Mode<mode::Default<>>{}) {
         static_assert(nn::layers::standardize::check_input_output<LAYER_SPEC, INPUT_SPEC, OUTPUT_SPEC>);
         using T = typename LAYER_SPEC::T;
         using TI = typename DEVICE::index_t;
@@ -71,13 +76,13 @@ namespace rl_tools{
             }
         }
     }
-    template<typename DEVICE, typename LAYER_SPEC, typename INPUT_SPEC, typename OUTPUT_SPEC, typename RNG, typename MODE = nn::mode::Default>
-    void forward(DEVICE& device, nn::layers::standardize::LayerBackward<LAYER_SPEC>& layer, const Matrix<INPUT_SPEC>& input, Matrix<OUTPUT_SPEC>& output, nn::layers::standardize::Buffer& buffer, RNG& rng, const nn::Mode<MODE>& mode = nn::Mode<nn::mode::Default>{}){
+    template<typename DEVICE, typename LAYER_SPEC, typename INPUT_SPEC, typename OUTPUT_SPEC, typename RNG, typename MODE = mode::Default<>>
+    void forward(DEVICE& device, nn::layers::standardize::LayerBackward<LAYER_SPEC>& layer, const Matrix<INPUT_SPEC>& input, Matrix<OUTPUT_SPEC>& output, nn::layers::standardize::Buffer& buffer, RNG& rng, const Mode<MODE>& mode = Mode<mode::Default<>>{}){
         static_assert(nn::layers::standardize::check_input_output<LAYER_SPEC, INPUT_SPEC, OUTPUT_SPEC>);
         evaluate(device, layer, input, output, buffer, rng, mode);
     }
-    template<typename DEVICE, typename LAYER_SPEC, typename INPUT_SPEC, typename RNG, typename MODE = nn::mode::Default>
-    void forward(DEVICE& device, nn::layers::standardize::LayerGradient<LAYER_SPEC>& layer, const Matrix<INPUT_SPEC>& input, nn::layers::standardize::Buffer& buffer, RNG& rng, const nn::Mode<MODE>& mode = nn::Mode<nn::mode::Default>{}){
+    template<typename DEVICE, typename LAYER_SPEC, typename INPUT_SPEC, typename RNG, typename MODE = mode::Default<>>
+    void forward(DEVICE& device, nn::layers::standardize::LayerGradient<LAYER_SPEC>& layer, const Matrix<INPUT_SPEC>& input, nn::layers::standardize::Buffer& buffer, RNG& rng, const Mode<MODE>& mode = Mode<mode::Default<>>{}){
         static_assert(nn::layers::standardize::check_input_output<LAYER_SPEC, INPUT_SPEC, typename decltype(layer.output)::SPEC>);
         forward(device, layer, input, layer.output, buffer, rng, mode);
     }
@@ -88,8 +93,8 @@ namespace rl_tools{
 //        copy(device, device, layer.output, output);
 //    }
 
-    template<typename DEVICE, typename LAYER_SPEC, typename D_OUTPUT_SPEC, typename D_INPUT_SPEC, typename MODE = nn::mode::Default>
-    void backward_input(DEVICE& device, nn::layers::standardize::LayerBackward<LAYER_SPEC>& layer, const Matrix<D_OUTPUT_SPEC>& d_output, Matrix<D_INPUT_SPEC>& d_input, nn::layers::standardize::Buffer& buffer, const nn::Mode<MODE>& mode = nn::Mode<nn::mode::Default>{}){
+    template<typename DEVICE, typename LAYER_SPEC, typename D_OUTPUT_SPEC, typename D_INPUT_SPEC, typename MODE = mode::Default<>>
+    void backward_input(DEVICE& device, nn::layers::standardize::LayerBackward<LAYER_SPEC>& layer, const Matrix<D_OUTPUT_SPEC>& d_output, Matrix<D_INPUT_SPEC>& d_input, nn::layers::standardize::Buffer& buffer, const Mode<MODE>& mode = Mode<mode::Default<>>{}){
         static_assert(nn::layers::standardize::check_input_output<LAYER_SPEC, D_INPUT_SPEC, D_OUTPUT_SPEC>);
         static_assert(nn::layers::standardize::check_input_output<LAYER_SPEC, D_INPUT_SPEC, D_OUTPUT_SPEC>);
         static_assert(LAYER_SPEC::INPUT_DIM == LAYER_SPEC::OUTPUT_DIM);
@@ -110,13 +115,13 @@ namespace rl_tools{
         }
     }
 
-    template<typename DEVICE, typename LAYER_SPEC, typename INPUT_SPEC, typename D_OUTPUT_SPEC, typename MODE = nn::mode::Default>
-    void backward(DEVICE& device, nn::layers::standardize::LayerGradient<LAYER_SPEC>& layer, const Matrix<INPUT_SPEC>& input, Matrix<D_OUTPUT_SPEC>& d_output, nn::layers::standardize::Buffer& buffer, const nn::Mode<MODE>& mode = nn::Mode<nn::mode::Default>{}) {
+    template<typename DEVICE, typename LAYER_SPEC, typename INPUT_SPEC, typename D_OUTPUT_SPEC, typename MODE = mode::Default<>>
+    void backward(DEVICE& device, nn::layers::standardize::LayerGradient<LAYER_SPEC>& layer, const Matrix<INPUT_SPEC>& input, Matrix<D_OUTPUT_SPEC>& d_output, nn::layers::standardize::Buffer& buffer, const Mode<MODE>& mode = Mode<mode::Default<>>{}) {
         // this is a no-op as the standardize layer does not have trainable parameters
     }
 
-    template<typename DEVICE, typename LAYER_SPEC, typename INPUT_SPEC, typename D_OUTPUT_SPEC, typename D_INPUT_SPEC, typename MODE = nn::mode::Default>
-    void backward_full(DEVICE& device, nn::layers::standardize::LayerGradient<LAYER_SPEC>& layer, const Matrix<INPUT_SPEC>& input, Matrix<D_OUTPUT_SPEC>& d_output, Matrix<D_INPUT_SPEC>& d_input, nn::layers::standardize::Buffer& buffer, const nn::Mode<MODE>& mode = nn::Mode<nn::mode::Default>{}) {
+    template<typename DEVICE, typename LAYER_SPEC, typename INPUT_SPEC, typename D_OUTPUT_SPEC, typename D_INPUT_SPEC, typename MODE = mode::Default<>>
+    void backward_full(DEVICE& device, nn::layers::standardize::LayerGradient<LAYER_SPEC>& layer, const Matrix<INPUT_SPEC>& input, Matrix<D_OUTPUT_SPEC>& d_output, Matrix<D_INPUT_SPEC>& d_input, nn::layers::standardize::Buffer& buffer, const Mode<MODE>& mode = Mode<mode::Default<>>{}) {
         // this is the same as the standardize layer does not have trainable parameters
         backward_input(device, layer, d_output, d_input, buffer, mode);
     }
@@ -154,9 +159,84 @@ namespace rl_tools{
         acc += abs_diff(device, l1.precision, l2.precision);
         return acc;
     }
-    template<typename SPEC>
-    RL_TOOLS_FUNCTION_PLACEMENT constexpr auto& output(nn::layers::standardize::LayerGradient<SPEC>& l){
+    template<typename DEVICE, typename SPEC>
+    RL_TOOLS_FUNCTION_PLACEMENT constexpr auto& output(DEVICE& device, nn::layers::standardize::LayerGradient<SPEC>& l){
         return l.output;
+    }
+    template <typename DEVICE, typename SPEC, typename MODE = mode::Default<>>
+    bool is_nan(DEVICE& device, const rl_tools::nn::layers::standardize::LayerForward<SPEC>& l, const Mode<MODE>& mode = Mode<mode::Default<>>{}) {
+        if constexpr(mode::is<MODE, nn::parameters::mode::ParametersOnly>){
+            return false;
+        }
+        return is_nan(device, l.mean, mode) || is_nan(device, l.precision, mode);
+    }
+    template <typename DEVICE, typename SPEC, typename MODE = mode::Default<>>
+    bool is_nan(DEVICE& device, const rl_tools::nn::layers::standardize::LayerBackward<SPEC>& l, const Mode<MODE>& mode = Mode<mode::Default<>>{}) {
+        return is_nan(device, static_cast<rl_tools::nn::layers::standardize::LayerForward<SPEC>&>(l), mode);
+    }
+    template <typename DEVICE, typename SPEC, typename MODE = mode::Default<>>
+    bool is_nan(DEVICE& device, const rl_tools::nn::layers::standardize::LayerGradient<SPEC>& l, const Mode<MODE>& mode = Mode<mode::Default<>>{}) {
+        bool upstream_nan = is_nan(device, static_cast<rl_tools::nn::layers::standardize::LayerBackward<SPEC>&>(l), mode);
+        if constexpr(mode::is<MODE, nn::parameters::mode::ParametersOnly>){
+            return upstream_nan;
+        }
+        return upstream_nan || is_nan(device, l.output, mode);
+    }
+}
+RL_TOOLS_NAMESPACE_WRAPPER_END
+
+// Tensor proxies
+RL_TOOLS_NAMESPACE_WRAPPER_START
+namespace rl_tools{
+    template<typename DEVICE, typename LAYER_SPEC, typename INPUT_SPEC, typename OUTPUT_SPEC, typename RNG, typename MODE = mode::Default<>>
+    void evaluate(DEVICE& device, const nn::layers::standardize::LayerForward<LAYER_SPEC>& layer, const Tensor<INPUT_SPEC>& input, Tensor<OUTPUT_SPEC>& output, nn::layers::standardize::Buffer& buffer, RNG& rng, const Mode<MODE>& mode = Mode<mode::Default<>>{}) {
+        auto matrix_view_input = matrix_view(device, input);
+        auto matrix_view_output = matrix_view(device, output);
+        evaluate(device, layer, matrix_view_input, matrix_view_output, buffer, rng, mode);
+    }
+    template<typename DEVICE, typename LAYER_SPEC, typename INPUT_SPEC, typename OUTPUT_SPEC, typename RNG, typename MODE = mode::Default<>>
+    void evaluate_step(DEVICE& device, const nn::layers::standardize::LayerForward<LAYER_SPEC>& layer, const Tensor<INPUT_SPEC>& input, nn::layers::standardize::State& state, Tensor<OUTPUT_SPEC>& output, nn::layers::standardize::Buffer& buffer, RNG& rng, const Mode<MODE>& mode = Mode<mode::Default<>>{}) {
+        auto matrix_view_input = matrix_view(device, input);
+        auto matrix_view_output = matrix_view(device, output);
+        evaluate(device, layer, matrix_view_input, matrix_view_output, buffer, rng, mode);
+    }
+    template<typename DEVICE, typename LAYER_SPEC, typename INPUT_SPEC, typename OUTPUT_SPEC, typename RNG, typename MODE = mode::Default<>>
+    void forward(DEVICE& device, nn::layers::standardize::LayerBackward<LAYER_SPEC>& layer, const Tensor<INPUT_SPEC>& input, Tensor<OUTPUT_SPEC>& output, nn::layers::standardize::Buffer& buffer, RNG& rng, const Mode<MODE>& mode = Mode<mode::Default<>>{}){
+        auto matrix_view_input = matrix_view(device, input);
+        auto matrix_view_output = matrix_view(device, output);
+        forward(device, layer, matrix_view_input, matrix_view_output, buffer, rng, mode);
+    }
+    template<typename DEVICE, typename LAYER_SPEC, typename INPUT_SPEC, typename RNG, typename MODE = mode::Default<>>
+    void forward(DEVICE& device, nn::layers::standardize::LayerGradient<LAYER_SPEC>& layer, const Tensor<INPUT_SPEC>& input, nn::layers::standardize::Buffer& buffer, RNG& rng, const Mode<MODE>& mode = Mode<mode::Default<>>{}) {
+        auto matrix_view_input = matrix_view(device, input);
+        forward(device, layer, matrix_view_input, layer.output, buffer, rng);
+    }
+    template<typename DEVICE, typename LAYER_SPEC, typename INPUT_SPEC, typename OUTPUT_SPEC, typename RNG, typename MODE = mode::Default<>>
+    void forward(DEVICE& device, nn::layers::standardize::LayerGradient<LAYER_SPEC>& layer, const Tensor<INPUT_SPEC>& input, Tensor<OUTPUT_SPEC>& output, nn::layers::standardize::Buffer& buffer, RNG& rng, const Mode<MODE>& mode = Mode<mode::Default<>>{}) {
+        auto matrix_view_input = matrix_view(device, input);
+        auto matrix_view_output = matrix_view(device, output);
+        forward(device, layer, matrix_view_input, matrix_view_output, buffer, rng, mode);
+    }
+    template<typename DEVICE, typename LAYER_SPEC, typename D_OUTPUT_SPEC, typename D_INPUT_SPEC, typename MODE = mode::Default<>>
+    void backward_input(DEVICE& device, const nn::layers::standardize::LayerBackward<LAYER_SPEC>& layer, const Tensor<D_OUTPUT_SPEC>& d_output, Tensor<D_INPUT_SPEC>& d_input, nn::layers::standardize::Buffer& buffer, const Mode<MODE>& mode = Mode<mode::Default<>>{}){
+        auto matrix_view_d_output = matrix_view(device, d_output);
+        auto matrix_view_d_input = matrix_view(device, d_input);
+        backward_input(device, layer, matrix_view_d_output, matrix_view_d_input, buffer, mode);
+    }
+
+    template<typename DEVICE, typename LAYER_SPEC, typename INPUT_SPEC, typename D_OUTPUT_SPEC, typename MODE = mode::Default<>>
+    void backward(DEVICE& device, nn::layers::standardize::LayerGradient<LAYER_SPEC>& layer, const Tensor<INPUT_SPEC>& input, Tensor<D_OUTPUT_SPEC>& d_output, nn::layers::standardize::Buffer& buffer, const Mode<MODE>& mode = Mode<mode::Default<>>{}) {
+        auto matrix_view_input = matrix_view(device, input);
+        auto matrix_view_d_output = matrix_view(device, d_output);
+        backward(device, layer, matrix_view_input, matrix_view_d_output, buffer, mode);
+    }
+
+    template<typename DEVICE, typename LAYER_SPEC, typename INPUT_SPEC, typename D_OUTPUT_SPEC, typename D_INPUT_SPEC, typename MODE = mode::Default<>>
+    void backward_full(DEVICE& device, nn::layers::standardize::LayerGradient<LAYER_SPEC>& layer, const Tensor<INPUT_SPEC>& input, Tensor<D_OUTPUT_SPEC>& d_output, Tensor<D_INPUT_SPEC>& d_input, nn::layers::standardize::Buffer& buffer, const Mode<MODE>& mode = Mode<mode::Default<>>{}) {
+        auto matrix_view_input = matrix_view(device, input);
+        auto matrix_view_d_output = matrix_view(device, d_output);
+        auto matrix_view_d_input = matrix_view(device, d_input);
+        backward_full(device, layer, matrix_view_input, matrix_view_d_output, matrix_view_d_input, buffer, mode);
     }
 }
 RL_TOOLS_NAMESPACE_WRAPPER_END

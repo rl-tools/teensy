@@ -25,30 +25,26 @@ namespace rl_tools::nn{
      The PARAMETER_TYPE determines the type of the parameters (e.g. adam requries first and second order moments in addition to the gradient)
      This Capability system allows the switching of models for e.g. checkpointing: We are training a full model with gradients, and optimizers state then convert it to a forward only model (just the parameters) and save it as a checkpoint.
     */
-    namespace layer_capability{
+    namespace capability{
+        template <bool T_DYNAMIC_ALLOCATION=true>
         struct Forward{
             static constexpr LayerCapability TAG = LayerCapability::Forward;
             using PARAMETER_TYPE = nn::parameters::Plain;
-            static constexpr auto BATCH_SIZE = 0;
-            template <auto T_NEW_BATCH_SIZE>
-            using CHANGE_BATCH_SIZE = Forward;
+            static constexpr auto BATCH_SIZE = 1;
+            static constexpr bool DYNAMIC_ALLOCATION = T_DYNAMIC_ALLOCATION;
         };
-        template <auto T_BATCH_SIZE>
+        template <bool T_DYNAMIC_ALLOCATION=true>
         struct Backward{
             static constexpr LayerCapability TAG = LayerCapability::Backward;
             using PARAMETER_TYPE = nn::parameters::Plain;
-            static constexpr auto BATCH_SIZE = T_BATCH_SIZE;
-            template <auto T_NEW_BATCH_SIZE>
-            using CHANGE_BATCH_SIZE = Backward<T_NEW_BATCH_SIZE>;
+            static constexpr bool DYNAMIC_ALLOCATION = T_DYNAMIC_ALLOCATION;
         };
-        template <typename T_PARAMETER_TYPE, auto T_BATCH_SIZE>
+        template <typename T_PARAMETER_TYPE, bool T_DYNAMIC_ALLOCATION=true>
         struct Gradient{
             static constexpr LayerCapability TAG = LayerCapability::Gradient;
             using PARAMETER_TYPE = T_PARAMETER_TYPE;
-            static constexpr auto BATCH_SIZE = T_BATCH_SIZE;
+            static constexpr bool DYNAMIC_ALLOCATION = T_DYNAMIC_ALLOCATION;
             static_assert(!utils::typing::is_same_v<T_PARAMETER_TYPE, nn::parameters::Plain>);
-            template <auto T_NEW_BATCH_SIZE>
-            using CHANGE_BATCH_SIZE = Gradient<T_PARAMETER_TYPE, T_NEW_BATCH_SIZE>;
         };
     }
 }

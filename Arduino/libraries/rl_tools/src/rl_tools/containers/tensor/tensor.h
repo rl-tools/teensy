@@ -6,13 +6,39 @@
 RL_TOOLS_NAMESPACE_WRAPPER_START
 namespace rl_tools{
     namespace tensor{
-        struct FinalElement{};
+        struct FinalElement{
+            static constexpr auto LENGTH = 0;
+            template <auto N>
+            struct GET {
+                static_assert(N == 0, "Index out of bounds in FinalElement");
+            };
+        };
+        template <typename TI, typename ELEMENT, TI N>
+        struct GET_IMPL {
+            static constexpr TI VALUE() {
+                if constexpr (N == 0) {
+                    // Base case: when N == 0, return the ELEMENT's VALUE
+                    return ELEMENT::VALUE;
+                } else {
+                    // Recursive case: delegate to NEXT_ELEMENT with N - 1
+                    return GET_IMPL<TI, typename ELEMENT::NEXT_ELEMENT, N - 1>::VALUE();
+                }
+            }
+        };
+
         template <typename T_TI, T_TI T_VALUE, typename T_NEXT_ELEMENT>
         struct Element{
             using TI = T_TI;
             static constexpr TI VALUE = T_VALUE;
     //            static constexpr bool FINAL_ELEMENT = utils::typing::is_same_v<T_NEXT_ELEMENT, FinalElement>;
             using NEXT_ELEMENT = T_NEXT_ELEMENT;
+
+            static constexpr bool NEXT_IS_FINAL = utils::typing::is_same_v<T_NEXT_ELEMENT, FinalElement>;
+            static constexpr TI LENGTH = (NEXT_IS_FINAL ? 0 : 1) + NEXT_ELEMENT::LENGTH;
+
+
+            template <TI N>
+            static constexpr TI GET = GET_IMPL<TI, Element<T_TI, T_VALUE, T_NEXT_ELEMENT>, N>::VALUE();
         };
 
 
@@ -63,6 +89,31 @@ namespace rl_tools{
         }
         else{
             return get<TARGET_INDEX_INPUT-1>(NEXT_ELEMENT{});
+        }
+    }
+    template <typename DEVICE, typename TI, TI VALUE, typename NEXT_ELEMENT>
+    TI get(DEVICE& device, const tensor::Element<TI, VALUE, NEXT_ELEMENT>, TI index){
+        utils::assert_exit(device, index < length(tensor::Element<TI, VALUE, NEXT_ELEMENT>{}), "Index out of bounds");
+        if constexpr (utils::typing::is_same_v<NEXT_ELEMENT, tensor::FinalElement>){
+            return VALUE;
+        }
+        else{
+            if(index == 0){
+                return VALUE;
+            }
+            else{
+                return get(device, NEXT_ELEMENT{}, index-1);
+            }
+        }
+    }
+    template <typename TI, TI VALUE, typename NEXT_ELEMENT>
+    TI constexpr get_last(tensor::Element<TI, VALUE, NEXT_ELEMENT>){
+        constexpr TI TARGET_INDEX = length(tensor::Element<TI, VALUE, NEXT_ELEMENT>{}) - 1;
+        if constexpr(TARGET_INDEX == 0){
+            return VALUE;
+        }
+        else{
+            return get<TARGET_INDEX-1>(NEXT_ELEMENT{});
         }
     }
     namespace tensor {
@@ -150,13 +201,13 @@ namespace rl_tools{
             }
         }
 
-        template <typename T_T, typename T_TI, typename T_SHAPE, typename T_STRIDE = RowMajorStride<T_SHAPE>, bool T_STATIC=false, bool T_CONST=false>
+        template <typename T_T, typename T_TI, typename T_SHAPE, bool T_DYNAMIC_ALLOCATION=true, typename T_STRIDE = RowMajorStride<T_SHAPE>, bool T_CONST=false>
         struct Specification{
             using T = T_T;
             using TI = T_TI;
             using SHAPE = T_SHAPE;
             using STRIDE = T_STRIDE;
-            static constexpr bool STATIC = T_STATIC;
+            static constexpr bool DYNAMIC_ALLOCATION = T_DYNAMIC_ALLOCATION;
             static constexpr bool CONST = T_CONST;
             static constexpr TI SIZE = max_span<SHAPE, STRIDE>();
             static constexpr TI SIZE_BYTES = SIZE * sizeof(T);
@@ -211,9 +262,14 @@ namespace rl_tools{
                 return RELAX_MAJOR || get<0>(STRIDE{}) == 1;
             }
             else{
-                using NEXT_SHAPE = PopFront<SHAPE>;
-                using NEXT_STRIDE = PopFront<STRIDE>;
-                return (STRIDE::VALUE == get<0>(NEXT_STRIDE{}) * get<0>(NEXT_SHAPE{})) && _dense_row_major_layout_shape<NEXT_SHAPE, NEXT_STRIDE, RELAX_MAJOR>();
+                if constexpr(RELAX_MAJOR && length(STRIDE{}) == 2){
+                    return get<0>(STRIDE{}) >= get<1>(STRIDE{}) * get<1>(SHAPE{});
+                }
+                else{
+                    using NEXT_SHAPE = PopFront<SHAPE>;
+                    using NEXT_STRIDE = PopFront<STRIDE>;
+                    return (STRIDE::VALUE == get<0>(NEXT_STRIDE{}) * get<0>(NEXT_SHAPE{})) && _dense_row_major_layout_shape<NEXT_SHAPE, NEXT_STRIDE, RELAX_MAJOR>();
+                }
             }
         }
         template <typename SPEC, bool RELAX_MAJOR=false>
@@ -227,7 +283,7 @@ namespace rl_tools{
                 template <typename STRIDE, typename VIEW_SPEC>
                 using Stride = STRIDE;
                 template <typename SPEC, typename VIEW_SPEC, bool T_CONST>
-                using Specification = tensor::Specification<typename SPEC::T, typename SPEC::TI, Shape<typename SPEC::SHAPE, VIEW_SPEC>, Stride<typename SPEC::STRIDE, VIEW_SPEC>, false, T_CONST>;
+                using Specification = tensor::Specification<typename SPEC::T, typename SPEC::TI, Shape<typename SPEC::SHAPE, VIEW_SPEC>, true, Stride<typename SPEC::STRIDE, VIEW_SPEC>, T_CONST>;
             }
             namespace point{
                 template <typename SHAPE, typename VIEW_SPEC>
@@ -235,22 +291,36 @@ namespace rl_tools{
                 template <typename STRIDE, typename VIEW_SPEC>
                 using Stride = tensor::Remove<STRIDE, VIEW_SPEC::DIM>;
                 template <typename SPEC, typename VIEW_SPEC, bool T_CONST>
-                using Specification = tensor::Specification<typename SPEC::T, typename SPEC::TI, Shape<typename SPEC::SHAPE, VIEW_SPEC>, Stride<typename SPEC::STRIDE, VIEW_SPEC>, false, T_CONST>;
+                using Specification = tensor::Specification<typename SPEC::T, typename SPEC::TI, Shape<typename SPEC::SHAPE, VIEW_SPEC>, true, Stride<typename SPEC::STRIDE, VIEW_SPEC>, T_CONST>;
             }
         }
     }
 
+    namespace tensor{
+        template <typename T, typename TI, TI SIZE>
+        struct TensorStatic{
+            T _data[SIZE];
+        };
+        template <typename T, bool CONST = false>
+        struct TensorDynamic{
+            T* _data = nullptr;
+        };
+        template <typename T>
+        struct TensorDynamic<T, true>{
+            const T* _data;
+        };
+    }
+
     template <typename T_SPEC>
-    struct Tensor{
+    struct Tensor: utils::typing::conditional_t<T_SPEC::DYNAMIC_ALLOCATION, tensor::TensorDynamic<typename T_SPEC::T, T_SPEC::CONST>, tensor::TensorStatic<typename T_SPEC::T, typename T_SPEC::TI, T_SPEC::SIZE>>{
         using SPEC = T_SPEC;
         using T = typename SPEC::T;
         template <typename VIEW_SPEC>
         using VIEW_POINT = Tensor<tensor::spec::view::point::Specification<SPEC, VIEW_SPEC, SPEC::CONST>>;
         template <typename VIEW_SPEC>
         using VIEW_RANGE = Tensor<tensor::spec::view::range::Specification<SPEC, VIEW_SPEC, SPEC::CONST>>;
-        using T_CV = utils::typing::conditional_t<SPEC::CONST, const T, T>;
-        using DATA_TYPE = utils::typing::conditional_t<SPEC::STATIC, T_CV[SPEC::SIZE], T_CV*>;
-        DATA_TYPE _data;
+        Tensor() = default;
+//        Tensor(DATA_TYPE data): _data(data){};
     };
 
     template <typename SPEC>
@@ -266,14 +336,7 @@ namespace rl_tools{
     constexpr typename SPEC::T*& data_reference(Tensor<SPEC>& tensor){
         return tensor._data;
     }
-    struct TensorDynamicTag{
-        template<typename SPEC>
-        using type = Tensor<tensor::Specification<typename SPEC::T, typename SPEC::TI, typename SPEC::SHAPE, typename SPEC::STRIDE, false>>;
-    };
-    struct TensorStaticTag{
-        template<typename SPEC>
-        using type = Tensor<tensor::Specification<typename SPEC::T, typename SPEC::TI, typename SPEC::SHAPE, typename SPEC::STRIDE, true>>;
-    };
 }
+RL_TOOLS_NAMESPACE_WRAPPER_END
 
 #endif

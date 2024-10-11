@@ -57,20 +57,22 @@ namespace rl_tools{
             data.terminated[episode_i][step_i] = terminated;
         }
     }
-    template<typename DEVICE, typename ENVIRONMENT, typename UI, typename POLICY, typename RNG, typename SPEC, template <typename> typename DATA, typename POLICY_EVALUATION_BUFFERS>
-    void evaluate(DEVICE& device, ENVIRONMENT&, UI& ui, const POLICY& policy, rl::utils::evaluation::Result<SPEC>& results, DATA<SPEC>& data, POLICY_EVALUATION_BUFFERS& policy_evaluation_buffers, RNG &rng, bool deterministic = false){
+    template<typename DEVICE, typename ENVIRONMENT, typename UI, typename POLICY, typename RNG, typename SPEC, template <typename> typename DATA, typename POLICY_EVALUATION_BUFFERS, typename MODE>
+    void evaluate(DEVICE& device, ENVIRONMENT&, UI& ui, const POLICY& policy, rl::utils::evaluation::Result<SPEC>& results, DATA<SPEC>& data, POLICY_EVALUATION_BUFFERS& policy_evaluation_buffers, RNG &rng, const Mode<MODE>& mode, bool deterministic = false){
         using T = typename POLICY::T;
         using TI = typename DEVICE::index_t;
-        static_assert(ENVIRONMENT::Observation::DIM == POLICY::INPUT_DIM, "Observation and policy input dimensions must match");
-        static_assert(ENVIRONMENT::ACTION_DIM == POLICY::OUTPUT_DIM || (2*ENVIRONMENT::ACTION_DIM == POLICY::OUTPUT_DIM), "Action and policy output dimensions must match");
-        static constexpr bool STOCHASTIC_POLICY = POLICY::OUTPUT_DIM == 2*ENVIRONMENT::ACTION_DIM;
+        constexpr TI INPUT_DIM = get_last(typename POLICY::INPUT_SHAPE{});
+        constexpr TI OUTPUT_DIM = get_last(typename POLICY::OUTPUT_SHAPE{});
+        static_assert(ENVIRONMENT::Observation::DIM == INPUT_DIM, "Observation and policy input dimensions must match");
+        static_assert(ENVIRONMENT::ACTION_DIM == OUTPUT_DIM || (2*ENVIRONMENT::ACTION_DIM == OUTPUT_DIM), "Action and policy output dimensions must match");
+        static constexpr bool STOCHASTIC_POLICY = OUTPUT_DIM == 2*ENVIRONMENT::ACTION_DIM;
         results.returns_mean = 0;
         results.returns_std = 0;
         results.episode_length_mean = 0;
         results.episode_length_std = 0;
 
-        MatrixDynamic<matrix::Specification<T, TI, SPEC::N_EPISODES, ENVIRONMENT::ACTION_DIM * (STOCHASTIC_POLICY ? 2 : 1)>> actions_buffer_full;
-        MatrixDynamic<matrix::Specification<T, TI, SPEC::N_EPISODES, ENVIRONMENT::Observation::DIM>> observations;
+        Matrix<matrix::Specification<T, TI, SPEC::N_EPISODES, ENVIRONMENT::ACTION_DIM * (STOCHASTIC_POLICY ? 2 : 1)>> actions_buffer_full;
+        Matrix<matrix::Specification<T, TI, SPEC::N_EPISODES, ENVIRONMENT::Observation::DIM>> observations;
         malloc(device, actions_buffer_full);
         malloc(device, observations);
         auto actions_buffer = view(device, actions_buffer_full, matrix::ViewSpec<SPEC::N_EPISODES, ENVIRONMENT::ACTION_DIM>{});
@@ -79,7 +81,11 @@ namespace rl_tools{
         typename ENVIRONMENT::State states[SPEC::N_EPISODES];
         typename ENVIRONMENT::Parameters parameters[SPEC::N_EPISODES];
         bool terminated[SPEC::N_EPISODES];
+        using ADJUSTED_POLICY = typename POLICY::template CHANGE_BATCH_SIZE<TI, SPEC::N_EPISODES>;
+        typename ADJUSTED_POLICY::template State<true> policy_state;
 
+        malloc(device, policy_state);
+        reset(device, policy, policy_state, rng);
         for(TI env_i = 0; env_i < SPEC::N_EPISODES; env_i++){
             auto& env = envs[env_i];
             malloc(device, env);
@@ -99,8 +105,8 @@ namespace rl_tools{
             }
             rl::utils::evaluation::set_parameters(data, env_i, current_parameters);
         }
-        for(TI step_i = 0; step_i < SPEC::STEP_LIMIT; step_i++) {
-            for(TI env_i = 0; env_i < SPEC::N_EPISODES; env_i++) {
+        for(TI step_i = 0; step_i < SPEC::STEP_LIMIT; step_i++){
+            for(TI env_i = 0; env_i < SPEC::N_EPISODES; env_i++){
                 auto observation = row(device, observations, env_i);
                 auto& state = states[env_i];
                 auto& env_parameters = parameters[env_i];
@@ -108,22 +114,12 @@ namespace rl_tools{
                 auto& env = envs[env_i];
                 observe(device, env, env_parameters, state, typename ENVIRONMENT::Observation{}, observation, rng);
             }
-            constexpr TI BATCH_SIZE = POLICY_EVALUATION_BUFFERS::BATCH_SIZE;
-            constexpr TI NUM_FORWARD_PASSES = SPEC::N_EPISODES / BATCH_SIZE;
-            if constexpr(NUM_FORWARD_PASSES > 0){
-                for(TI forward_pass_i = 0; forward_pass_i < NUM_FORWARD_PASSES; forward_pass_i++){
-                    auto observations_chunk = view(device, observations, matrix::ViewSpec<BATCH_SIZE, ENVIRONMENT::Observation::DIM>{}, forward_pass_i*BATCH_SIZE, 0);
-                    auto actions_buffer_chunk = view(device, actions_buffer_full, matrix::ViewSpec<BATCH_SIZE, ENVIRONMENT::ACTION_DIM * (STOCHASTIC_POLICY ? 2 : 1)>{}, forward_pass_i*BATCH_SIZE, 0);
-//                    sample(device, policy_evaluation_buffers, rng);
-                    evaluate(device, policy, observations_chunk, actions_buffer_chunk, policy_evaluation_buffers, rng, nn::Mode<nn::mode::Inference>{});
-                }
-            }
-            if constexpr(SPEC::N_EPISODES % BATCH_SIZE != 0){
-                auto observations_chunk = view(device, observations, matrix::ViewSpec<SPEC::N_EPISODES % BATCH_SIZE, ENVIRONMENT::Observation::DIM>{}, NUM_FORWARD_PASSES*BATCH_SIZE, 0);
-                auto actions_buffer_chunk = view(device, actions_buffer_full, matrix::ViewSpec<SPEC::N_EPISODES % BATCH_SIZE, ENVIRONMENT::ACTION_DIM * (STOCHASTIC_POLICY ? 2 : 1)>{}, NUM_FORWARD_PASSES*BATCH_SIZE, 0);
-//                sample(device, policy_evaluation_buffers, rng);
-                evaluate(device, policy, observations_chunk, actions_buffer_chunk, policy_evaluation_buffers, rng, nn::Mode<nn::mode::Inference>{});
-            }
+            auto observations_chunk = view(device, observations, matrix::ViewSpec<SPEC::N_EPISODES, ENVIRONMENT::Observation::DIM>{}, 0, 0);
+            auto actions_buffer_chunk = view(device, actions_buffer_full, matrix::ViewSpec<SPEC::N_EPISODES, ENVIRONMENT::ACTION_DIM * (STOCHASTIC_POLICY ? 2 : 1)>{}, 0, 0);
+            auto input_tensor = to_tensor(device, observations_chunk);
+            auto output_tensor = to_tensor(device, actions_buffer_chunk);
+
+            evaluate_step(device, policy, input_tensor, policy_state, output_tensor, policy_evaluation_buffers, rng, mode);
             if constexpr(STOCHASTIC_POLICY){ // todo: This is a special case for SAC, will be uneccessary once (https://github.com/rl-tools/rl-tools/blob/72a59eabf4038502c3be86a4f772bd72526bdcc8/TODO.md?plain=1#L22) is implemented
                 for(TI env_i = 0; env_i < SPEC::N_EPISODES; env_i++) {
                     for (TI action_i = 0; action_i < ENVIRONMENT::ACTION_DIM; action_i++) {
@@ -163,6 +159,7 @@ namespace rl_tools{
                 states[env_i] = next_state;
             }
         }
+        free(device, policy_state);
         for(TI env_i = 0; env_i < SPEC::N_EPISODES; env_i++) {
             auto &env = envs[env_i];
             free(device, env);
@@ -182,10 +179,10 @@ namespace rl_tools{
         free(device, actions_buffer_full);
         free(device, observations);
     }
-    template<typename DEVICE, typename ENVIRONMENT, typename UI, typename POLICY, typename RNG, typename SPEC, typename POLICY_EVALUATION_BUFFERS>
-    void evaluate(DEVICE& device, ENVIRONMENT& env, UI& ui, const POLICY& policy, rl::utils::evaluation::Result<SPEC>& results, POLICY_EVALUATION_BUFFERS& policy_evaluation_buffers, RNG &rng, bool deterministic = false){
+    template<typename DEVICE, typename ENVIRONMENT, typename UI, typename POLICY, typename RNG, typename SPEC, typename POLICY_EVALUATION_BUFFERS, typename MODE>
+    void evaluate(DEVICE& device, ENVIRONMENT& env, UI& ui, const POLICY& policy, rl::utils::evaluation::Result<SPEC>& results, POLICY_EVALUATION_BUFFERS& policy_evaluation_buffers, RNG &rng, const Mode<MODE>& mode, bool deterministic = false){
         rl::utils::evaluation::NoData<SPEC> data;
-        evaluate(device, env, ui, policy, results, data, policy_evaluation_buffers, rng, deterministic);
+        evaluate(device, env, ui, policy, results, data, policy_evaluation_buffers, rng, mode, deterministic);
     }
 }
 RL_TOOLS_NAMESPACE_WRAPPER_END

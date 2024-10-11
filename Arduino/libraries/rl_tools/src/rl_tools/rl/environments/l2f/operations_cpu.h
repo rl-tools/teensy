@@ -17,7 +17,11 @@ namespace rl_tools{
         json += "\"rotors\": [";
         for (TI i = 0; i < PARAM_SPEC::N; i++){
             json += "{";
-            json += "\"thrust_curve\": {\"factor_1\": 1}, ";
+            json += "\"thrust_curve\": [";
+            json += std::to_string(parameters.dynamics.rotor_thrust_coefficients[0]) + ", ";
+            json += std::to_string(parameters.dynamics.rotor_thrust_coefficients[1]) + ", ";
+            json += std::to_string(parameters.dynamics.rotor_thrust_coefficients[2]);
+            json += "], ";
             json += "\"pose\": {";
             json += "\"position\": [" + std::to_string(parameters.dynamics.rotor_positions[i][0]) + ", " + std::to_string(parameters.dynamics.rotor_positions[i][1]) + ", " + std::to_string(parameters.dynamics.rotor_positions[i][2]) + "], ";
             T qw, qx, qy, qz;
@@ -65,7 +69,7 @@ namespace rl_tools{
         return json;
     }
     template <typename DEVICE, typename SPEC, typename STATE_T, typename STATE_TI>
-    std::string json(DEVICE& device, rl::environments::Multirotor<SPEC>& env, typename rl::environments::Multirotor<SPEC>::Parameters& parameters, rl::environments::l2f::StateBase<STATE_T, STATE_TI>& state){
+    std::string json(DEVICE& device, rl::environments::Multirotor<SPEC>& env, const typename rl::environments::Multirotor<SPEC>::Parameters& parameters, const rl::environments::l2f::StateBase<STATE_T, STATE_TI>& state){
         std::string json = "{";
         json += "\"position\": [" + std::to_string(state.position[0]) + ", " + std::to_string(state.position[1]) + ", " + std::to_string(state.position[2]) + "], ";
         json += "\"orientation\": [" + std::to_string(state.orientation[0]) + ", " + std::to_string(state.orientation[1]) + ", " + std::to_string(state.orientation[2]) + ", " + std::to_string(state.orientation[3]) + "]";

@@ -1,7 +1,7 @@
 #include "../../version.h"
-#if (defined(RL_TOOLS_DISABLE_INCLUDE_GUARDS) || !defined(RL_TOOLS_CONTAINERS_PERSIST_CODE_H)) && (RL_TOOLS_USE_THIS_VERSION == 1)
+#if (defined(RL_TOOLS_DISABLE_INCLUDE_GUARDS) || !defined(RL_TOOLS_CONTAINERS_MATRIX_PERSIST_CODE_H)) && (RL_TOOLS_USE_THIS_VERSION == 1)
 #pragma once
-#define RL_TOOLS_CONTAINERS_PERSIST_CODE_H
+#define RL_TOOLS_CONTAINERS_MATRIX_PERSIST_CODE_H
 
 #include "../../persist/code.h"
 #include "../../utils/generic/typing.h"
@@ -78,8 +78,8 @@ namespace rl_tools{
             }
         }
         ss << "};\n";
-        ss << ind << "    using CONTAINER_SPEC = RL_TOOLS""_NAMESPACE_WRAPPER ::rl_tools::matrix::Specification<" << containers::persist::get_type_string<T>() << ", " << containers::persist::get_type_string<TI>() << ", " << SPEC::ROWS << ", " << SPEC::COLS << ", " << "RL_TOOLS""_NAMESPACE_WRAPPER ::rl_tools::matrix::layouts::RowMajorAlignment<" << containers::persist::get_type_string<TI>() << ", " << 1 << ">>;\n";
-        ss << ind << "    using CONTAINER_TYPE = RL_TOOLS""_NAMESPACE_WRAPPER ::rl_tools::MatrixDynamic<CONTAINER_SPEC>;\n";
+        ss << ind << "    using CONTAINER_SPEC = RL_TOOLS""_NAMESPACE_WRAPPER ::rl_tools::matrix::Specification<" << containers::persist::get_type_string<T>() << ", " << containers::persist::get_type_string<TI>() << ", " << SPEC::ROWS << ", " << SPEC::COLS << ", " << (SPEC::DYNAMIC_ALLOCATION ? "true" : "false") << ", " << "RL_TOOLS""_NAMESPACE_WRAPPER ::rl_tools::matrix::layouts::RowMajorAlignment<" << containers::persist::get_type_string<TI>() << ", " << 1 << ">>;\n";
+        ss << ind << "    using CONTAINER_TYPE = RL_TOOLS""_NAMESPACE_WRAPPER ::rl_tools::Matrix<CONTAINER_SPEC>;\n";
         ss << ind << "    " << (const_declaration ? "const " : "") << "CONTAINER_TYPE container = {(" << containers::persist::get_type_string<T>() << "*)" << "memory}; \n";
         ss << ind << "}\n";
         return {ss_header.str(), ss.str()};

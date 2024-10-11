@@ -12,14 +12,24 @@ namespace rl_tools::rl::algorithms::sac {
         static constexpr T GAMMA = 0.99;
         static constexpr TI ACTOR_BATCH_SIZE = 32;
         static constexpr TI CRITIC_BATCH_SIZE = 32;
-        static constexpr TI N_WARMUP_STEPS_CRITIC = 0;
-        static constexpr TI N_WARMUP_STEPS_ACTOR = 0;
         static constexpr TI CRITIC_TRAINING_INTERVAL = 1;
         static constexpr TI ACTOR_TRAINING_INTERVAL = 1;
         static constexpr TI CRITIC_TARGET_UPDATE_INTERVAL = 1;
         static constexpr T ACTOR_POLYAK = 1.0 - 0.005;
         static constexpr T CRITIC_POLYAK = 1.0 - 0.005;
         static constexpr bool IGNORE_TERMINATION = false; // ignoring the termination flag is useful for training on environments with negative rewards, where the agent would try to terminate the episode as soon as possible otherwise
+        static constexpr TI SEQUENCE_LENGTH = 1;
+        static constexpr bool ENTROPY_BONUS = true;
+        static constexpr bool ENTROPY_BONUS_NEXT_STEP = true;
+        static constexpr bool MASK_NON_TERMINAL = true;
+
+        static constexpr T TARGET_ENTROPY = -((T)ACTION_DIM);
+        static constexpr T ALPHA = 0.5;
+        static constexpr bool ADAPTIVE_ALPHA = true;
+        static constexpr T LOG_STD_LOWER_BOUND = -20;
+        static constexpr T LOG_STD_UPPER_BOUND = 2;
+        static constexpr T LOG_PROBABILITY_EPSILON = 1e-6;
+
     };
 
     template<
@@ -33,8 +43,7 @@ namespace rl_tools::rl::algorithms::sac {
         typename T_ACTOR_OPTIMIZER,
         typename T_CRITIC_OPTIMIZER,
         typename T_ALPHA_OPTIMIZER,
-        typename T_PARAMETERS,
-        typename T_CONTAINER_TYPE_TAG = MatrixDynamicTag
+        typename T_PARAMETERS
     >
     struct Specification{
         using T = T_T;
@@ -48,62 +57,71 @@ namespace rl_tools::rl::algorithms::sac {
         using CRITIC_OPTIMIZER = T_CRITIC_OPTIMIZER;
         using ALPHA_OPTIMIZER = T_ALPHA_OPTIMIZER;
         using PARAMETERS = T_PARAMETERS;
-        using CONTAINER_TYPE_TAG = T_CONTAINER_TYPE_TAG;
     };
 
-    template<typename T_SPEC, typename T_CONTAINER_TYPE_TAG = typename T_SPEC::CONTAINER_TYPE_TAG>
-    struct ActorTrainingBuffers{
+    template <typename T_SPEC, bool T_DYNAMIC_ALLOCATION>
+    struct ActorTrainingBuffersSpecification{
         using SPEC = T_SPEC;
+        static constexpr bool DYNAMIC_ALLOCATION = T_DYNAMIC_ALLOCATION;
+    };
+
+    template<typename T_SPEC>
+    struct ActorTrainingBuffers{
+        using SPEC = typename T_SPEC::SPEC;
         using T = typename SPEC::T;
         using TI = typename SPEC::TI;
-        using CONTAINER_TYPE_TAG = T_CONTAINER_TYPE_TAG;
+        static constexpr bool DYNAMIC_ALLOCATION = T_SPEC::DYNAMIC_ALLOCATION;
+        static constexpr TI SEQUENCE_LENGTH = SPEC::PARAMETERS::SEQUENCE_LENGTH;
         static constexpr TI BATCH_SIZE = SPEC::PARAMETERS::ACTOR_BATCH_SIZE;
-        static constexpr TI ACTOR_INPUT_DIM = SPEC::ACTOR_NETWORK_TYPE::INPUT_DIM;
+        static constexpr TI ACTOR_INPUT_DIM = get_last(typename SPEC::ACTOR_NETWORK_TYPE::INPUT_SHAPE{});
         static constexpr TI ACTION_DIM = SPEC::ENVIRONMENT::ACTION_DIM;
-        static constexpr TI CRITIC_OBSERVATION_DIM = SPEC::CRITIC_NETWORK_TYPE::INPUT_DIM - SPEC::ENVIRONMENT::ACTION_DIM;
+        static constexpr TI CRITIC_OBSERVATION_DIM = get_last(typename SPEC::CRITIC_NETWORK_TYPE::INPUT_SHAPE{}) - SPEC::ENVIRONMENT::ACTION_DIM;
 
-        typename CONTAINER_TYPE_TAG::template type<matrix::Specification<T, TI, BATCH_SIZE, CRITIC_OBSERVATION_DIM + ACTION_DIM>> state_action_value_input;
+        Tensor<tensor::Specification<T, TI, tensor::Shape<TI, SEQUENCE_LENGTH, BATCH_SIZE, CRITIC_OBSERVATION_DIM + ACTION_DIM>, DYNAMIC_ALLOCATION>> state_action_value_input;
         template<typename SPEC::TI DIM>
-        using STATE_ACTION_VALUE_VIEW = typename decltype(state_action_value_input)::template VIEW<BATCH_SIZE, DIM>;
+        using STATE_ACTION_VALUE_VIEW = typename decltype(state_action_value_input)::template VIEW_RANGE<tensor::ViewSpec<2, DIM>>;
         STATE_ACTION_VALUE_VIEW<CRITIC_OBSERVATION_DIM> observations;
         STATE_ACTION_VALUE_VIEW<ACTION_DIM> actions;
-//        typename CONTAINER_TYPE_TAG::template type<matrix::Specification<T, TI, BATCH_SIZE, 1>> state_action_value;
-        typename CONTAINER_TYPE_TAG::template type<matrix::Specification<T, TI, BATCH_SIZE, 1>> d_output;
-        typename CONTAINER_TYPE_TAG::template type<matrix::Specification<T, TI, BATCH_SIZE, CRITIC_OBSERVATION_DIM + ACTION_DIM>> d_critic_1_input, d_critic_2_input;
-        typename CONTAINER_TYPE_TAG::template type<matrix::Specification<T, TI, BATCH_SIZE, ACTION_DIM>> d_critic_action_input;
-        typename CONTAINER_TYPE_TAG::template type<matrix::Specification<T, TI, BATCH_SIZE, ACTION_DIM>> action_sample, action_noise;
-        typename CONTAINER_TYPE_TAG::template type<matrix::Specification<T, TI, BATCH_SIZE, ACTION_DIM>> d_actor_output_squashing;
-        typename CONTAINER_TYPE_TAG::template type<matrix::Specification<T, TI, BATCH_SIZE, ACTION_DIM * 2>> d_squashing_input;
-        typename CONTAINER_TYPE_TAG::template type<matrix::Specification<T, TI, BATCH_SIZE, ACTION_DIM * 2>> d_actor_output;
-        typename CONTAINER_TYPE_TAG::template type<matrix::Specification<T, TI, BATCH_SIZE, ACTOR_INPUT_DIM>> d_actor_input;
-
+        Tensor<tensor::Specification<T, TI, tensor::Shape<TI, SEQUENCE_LENGTH, BATCH_SIZE, 1>, DYNAMIC_ALLOCATION>> d_output;
+        Tensor<tensor::Specification<T, TI, tensor::Shape<TI, SEQUENCE_LENGTH, BATCH_SIZE, CRITIC_OBSERVATION_DIM + ACTION_DIM>, DYNAMIC_ALLOCATION>> d_critic_1_input, d_critic_2_input;
+        Tensor<tensor::Specification<T, TI, tensor::Shape<TI, SEQUENCE_LENGTH, BATCH_SIZE, ACTION_DIM>, DYNAMIC_ALLOCATION>> d_critic_action_input;
+        Tensor<tensor::Specification<T, TI, tensor::Shape<TI, SEQUENCE_LENGTH, BATCH_SIZE, ACTION_DIM>, DYNAMIC_ALLOCATION>> action_sample, action_noise;
+        Tensor<tensor::Specification<T, TI, tensor::Shape<TI, SEQUENCE_LENGTH, BATCH_SIZE, ACTION_DIM>, DYNAMIC_ALLOCATION>> d_actor_output_squashing;
+        Tensor<tensor::Specification<T, TI, tensor::Shape<TI, SEQUENCE_LENGTH, BATCH_SIZE, ACTION_DIM * 2>, DYNAMIC_ALLOCATION>> d_squashing_input;
+        Tensor<tensor::Specification<T, TI, tensor::Shape<TI, SEQUENCE_LENGTH, BATCH_SIZE, ACTION_DIM * 2>, DYNAMIC_ALLOCATION>> d_actor_output;
+        Tensor<tensor::Specification<T, TI, tensor::Shape<TI, SEQUENCE_LENGTH, BATCH_SIZE, ACTOR_INPUT_DIM>, DYNAMIC_ALLOCATION>> d_actor_input;
     };
-    template<typename T_SPEC, typename T_CONTAINER_TYPE_TAG = typename T_SPEC::CONTAINER_TYPE_TAG>
-    struct CriticTrainingBuffers{
+    template <typename T_SPEC, bool T_DYNAMIC_ALLOCATION>
+    struct CriticTrainingBuffersSpecification{
         using SPEC = T_SPEC;
+        static constexpr bool DYNAMIC_ALLOCATION = T_DYNAMIC_ALLOCATION;
+    };
+    template<typename T_SPEC>
+    struct CriticTrainingBuffers{
+        using SPEC = typename T_SPEC::SPEC;
         using T = typename SPEC::T;
         using TI = typename SPEC::TI;
-        using CONTAINER_TYPE_TAG = T_CONTAINER_TYPE_TAG;
+        static constexpr bool DYNAMIC_ALLOCATION = T_SPEC::DYNAMIC_ALLOCATION;
+        static constexpr TI SEQUENCE_LENGTH = SPEC::PARAMETERS::SEQUENCE_LENGTH;
         static constexpr TI BATCH_SIZE = SPEC::PARAMETERS::CRITIC_BATCH_SIZE;
         static constexpr TI ACTION_DIM = SPEC::ENVIRONMENT::ACTION_DIM;
-        static constexpr TI CRITIC_OBSERVATION_DIM = SPEC::CRITIC_NETWORK_TYPE::INPUT_DIM - ACTION_DIM;
+        static constexpr TI CRITIC_OBSERVATION_DIM = get_last(typename SPEC::CRITIC_NETWORK_TYPE::INPUT_SHAPE{}) - SPEC::ENVIRONMENT::ACTION_DIM;
 
 
-        typename CONTAINER_TYPE_TAG::template type<matrix::Specification<T, TI, BATCH_SIZE, CRITIC_OBSERVATION_DIM + ACTION_DIM*2>> next_state_action_value_input_full;
+        Tensor<tensor::Specification<T, TI, tensor::Shape<TI, SEQUENCE_LENGTH, BATCH_SIZE, CRITIC_OBSERVATION_DIM + ACTION_DIM*2>, DYNAMIC_ALLOCATION>> next_state_action_value_input_full;
         template<typename SPEC::TI DIM>
-        using NEXT_STATE_ACTION_VALUE_VIEW = typename decltype(next_state_action_value_input_full)::template VIEW<BATCH_SIZE, DIM>;
+        using NEXT_STATE_ACTION_VALUE_VIEW = typename decltype(next_state_action_value_input_full)::template VIEW_RANGE<tensor::ViewSpec<2, DIM>>;
         NEXT_STATE_ACTION_VALUE_VIEW<CRITIC_OBSERVATION_DIM + ACTION_DIM> next_state_action_value_input;
         NEXT_STATE_ACTION_VALUE_VIEW<CRITIC_OBSERVATION_DIM> next_observations;
         NEXT_STATE_ACTION_VALUE_VIEW<ACTION_DIM*2> next_actions_distribution;
         NEXT_STATE_ACTION_VALUE_VIEW<ACTION_DIM> next_actions_mean;
-        typename CONTAINER_TYPE_TAG::template type<matrix::Specification<T, TI, BATCH_SIZE, 1>> action_value;
-        typename CONTAINER_TYPE_TAG::template type<matrix::Specification<T, TI, BATCH_SIZE, 1>> target_action_value;
-        typename CONTAINER_TYPE_TAG::template type<matrix::Specification<T, TI, BATCH_SIZE, 1>> next_state_action_value_critic_1;
-        typename CONTAINER_TYPE_TAG::template type<matrix::Specification<T, TI, BATCH_SIZE, 1>> next_state_action_value_critic_2;
-
-        typename CONTAINER_TYPE_TAG::template type<matrix::Specification<T, TI, BATCH_SIZE, CRITIC_OBSERVATION_DIM + ACTION_DIM>> d_input;
-        typename CONTAINER_TYPE_TAG::template type<matrix::Specification<T, TI, BATCH_SIZE, 1>> d_output;
-        typename CONTAINER_TYPE_TAG::template type<matrix::Specification<T, TI, BATCH_SIZE, 1>> next_action_log_probs;
+        Tensor<tensor::Specification<T, TI, tensor::Shape<TI, SEQUENCE_LENGTH, BATCH_SIZE, 1>>> action_value;
+        Tensor<tensor::Specification<T, TI, tensor::Shape<TI, SEQUENCE_LENGTH, BATCH_SIZE, 1>>> target_action_value;
+        Tensor<tensor::Specification<T, TI, tensor::Shape<TI, SEQUENCE_LENGTH, BATCH_SIZE, 1>>> next_state_action_value_critic_1;
+        Tensor<tensor::Specification<T, TI, tensor::Shape<TI, SEQUENCE_LENGTH, BATCH_SIZE, 1>>> next_state_action_value_critic_2;
+        Tensor<tensor::Specification<T, TI, tensor::Shape<TI, SEQUENCE_LENGTH, BATCH_SIZE, CRITIC_OBSERVATION_DIM + ACTION_DIM>>> d_input;
+        Tensor<tensor::Specification<T, TI, tensor::Shape<TI, SEQUENCE_LENGTH, BATCH_SIZE, 1>>> d_output;
+        Tensor<tensor::Specification<T, TI, tensor::Shape<TI, SEQUENCE_LENGTH, BATCH_SIZE, 1>>> next_action_log_probs;
     };
 
     template<typename T_SPEC>

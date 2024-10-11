@@ -25,16 +25,28 @@ namespace rl_tools {
             ss_header << input.header;
             ss_header << "#include <rl_tools/nn/layers/sample_and_squash/layer.h>\n";
             ss << input.body;
+            std::string T_string = containers::persist::get_type_string<typename SPEC::T>();
+            std::string TI_string = containers::persist::get_type_string<typename SPEC::TI>();
             ss << ind << "namespace " << name << " {\n";
-            ss << ind << "    using SPEC = " << "RL_TOOLS""_NAMESPACE_WRAPPER ::rl_tools::nn::layers::sample_and_squash::Specification<"
-               << containers::persist::get_type_string<typename SPEC::T>() << ", "
-               << containers::persist::get_type_string<typename SPEC::TI>() << ", "
-               << SPEC::DIM
-               << ">; \n";
-            ss << ind << "    " << "template <typename CAPABILITY>" << "\n";
-            ss << ind << "    " << "using TEMPLATE = RL_TOOLS""_NAMESPACE_WRAPPER ::rl_tools::nn::layers::sample_and_squash::Layer<CAPABILITY, SPEC>;" << "\n";
+            std::string T_parameter_string = containers::persist::get_type_string<typename SPEC::T>();
+            ss << ind << "    using PARAMETERS = " << "struct PARAMETERS{";
+            ss << ind << "        static constexpr " << T_parameter_string << " LOG_STD_LOWER_BOUND = " << SPEC::PARAMETERS::LOG_STD_LOWER_BOUND << ";\n";
+            ss << ind << "        static constexpr " << T_parameter_string << " LOG_STD_UPPER_BOUND = " << SPEC::PARAMETERS::LOG_STD_UPPER_BOUND << ";\n";
+            ss << ind << "        static constexpr " << T_parameter_string << " LOG_PROBABILITY_EPSILON = " << SPEC::PARAMETERS::LOG_PROBABILITY_EPSILON << ";\n";
+            ss << ind << "        static constexpr bool ADAPTIVE_ALPHA = " << (SPEC::PARAMETERS::ADAPTIVE_ALPHA ? "true" : "false")  << ";\n";
+            ss << ind << "        static constexpr bool UPDATE_ALPHA_WITH_ACTOR = " << (SPEC::PARAMETERS::UPDATE_ALPHA_WITH_ACTOR ? "true" : "false") << ";\n";
+            ss << ind << "        static constexpr " << T_parameter_string << " ALPHA = " << SPEC::PARAMETERS::ALPHA << ";\n";
+            ss << ind << "        static constexpr " << T_parameter_string << " TARGET_ENTROPY = " << SPEC::PARAMETERS::TARGET_ENTROPY << ";\n";
+            ss << ind << "    };\n";
+            ss << ind << "    using CONFIG = " << "RL_TOOLS""_NAMESPACE_WRAPPER ::rl_tools::nn::layers::sample_and_squash::Configuration<";
+            ss << T_string << ", ";
+            ss << TI_string << ", ";
+            ss << "PARAMETERS";
+            ss << ">; \n";;
+            ss << ind << "    " << "using TEMPLATE = RL_TOOLS""_NAMESPACE_WRAPPER ::rl_tools::nn::layers::sample_and_squash::BindConfiguration<CONFIG>;" << "\n";
+            ss << ind << "    " << "using INPUT_SHAPE = RL_TOOLS""_NAMESPACE_WRAPPER ::rl_tools::tensor::Shape<" << TI_string << ", " << get<0>(typename SPEC::INPUT_SHAPE{}) << ", " << get<1>(typename SPEC::INPUT_SHAPE{}) << ", " << get<2>(typename SPEC::INPUT_SHAPE{}) << ">;\n";
             ss << ind << "    " << "using CAPABILITY = " << to_string(typename SPEC::CAPABILITY{}) << ";" << "\n";
-            ss << ind << "    " << "using TYPE = RL_TOOLS""_NAMESPACE_WRAPPER ::rl_tools::nn::layers::sample_and_squash::Layer<CAPABILITY, SPEC>;" << "\n";
+            ss << ind << "    " << "using TYPE = RL_TOOLS""_NAMESPACE_WRAPPER ::rl_tools::nn::layers::sample_and_squash::Layer<CONFIG, CAPABILITY, INPUT_SHAPE>;" << "\n";
             std::string initializer_list;
             if constexpr(SPEC::CAPABILITY::TAG == nn::LayerCapability::Forward){
                 initializer_list = "{}";
@@ -53,6 +65,10 @@ namespace rl_tools {
                 }
             }
             ss << ind << "    " << (const_declaration ? "const " : "") << "TYPE module = " << initializer_list << ";\n";
+            ss << ind << "    " << "template <typename MODEL>" << "\n";
+            ss << ind << "    " << "constexpr MODEL create(){" << "\n";
+            ss << ind << "    " << "    return MODEL" << initializer_list << ";" << "\n";
+            ss << ind << "    " << "}" << "\n";
             ss << ind << "}\n";
 
 

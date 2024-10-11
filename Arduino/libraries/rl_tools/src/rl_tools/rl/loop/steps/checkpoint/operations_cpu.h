@@ -18,11 +18,15 @@
 #include <cstring>
 #endif
 
-#include <rl_tools/containers/matrix/persist_code.h>
-#include <rl_tools/nn/parameters/persist_code.h>
-#include <rl_tools/nn/layers/dense/persist_code.h>
-#include <rl_tools/nn_models/mlp/persist_code.h>
-#include <rl_tools/nn_models/sequential/persist_code.h>
+#include "../../../../containers/matrix/persist_code.h"
+#include "../../../../containers/tensor/persist_code.h"
+#include "../../../../nn/optimizers/adam/instance/persist_code.h"
+#include "../../../../nn/parameters/persist_code.h"
+#include "../../../../nn/layers/dense/persist_code.h"
+#include "../../../../nn/layers/gru/persist_code.h"
+#include "../../../../nn/layers/sample_and_squash/persist_code.h"
+#include "../../../../nn_models/mlp/persist_code.h"
+#include "../../../../nn_models/sequential/persist_code.h"
 
 #include "../../../../utils/zlib/operations_cpu.h"
 
@@ -45,6 +49,62 @@ namespace rl_tools{
         free(device, static_cast<typename STATE::NEXT&>(ts));
     }
 
+    namespace rl::loop::steps::checkpoint{
+            template <auto BATCH_SIZE, typename DEVICE, typename CONFIG, typename ACTOR_TYPE, bool STORE_UNCOMPRESSED_ANYWAYS=true>
+            void save_code(DEVICE& device, rl::loop::steps::checkpoint::State<CONFIG>& ts, std::string step_folder, ACTOR_TYPE& actor_forward){
+                using T = typename CONFIG::T;
+                using TI = typename DEVICE::index_t;
+                typename ACTOR_TYPE::template Buffer<> actor_buffer;
+                malloc(device, actor_buffer);
+                auto actor_weights = rl_tools::save_code(device, actor_forward, std::string("rl_tools::checkpoint::actor"), true);
+                std::stringstream output_ss;
+                output_ss << actor_weights;
+                {
+                    Tensor<tensor::Specification<T, TI, tensor::Replace<typename ACTOR_TYPE::INPUT_SHAPE, BATCH_SIZE, 1>>> input;
+                    Tensor<tensor::Specification<T, TI, tensor::Replace<typename ACTOR_TYPE::OUTPUT_SHAPE, BATCH_SIZE, 1>>> output;
+                    malloc(device, input);
+                    malloc(device, output);
+                    auto rng_copy = ts.rng;
+                    randn(device, input, rng_copy);
+                    Mode<mode::Evaluation<>> mode;
+                    evaluate(device, actor_forward, input, output, actor_buffer, rng_copy, mode);
+                    output_ss << "\n" << save_code(device, input, std::string("rl_tools::checkpoint::example::input"), true);
+                    output_ss << "\n" << save_code(device, output, std::string("rl_tools::checkpoint::example::output"), true);
+                    free(device, input);
+                    free(device, output);
+                }
+                output_ss << "\n" << "namespace rl_tools::checkpoint::meta{";
+                output_ss << "\n" << "   " << "char name[] = \"" << step_folder << "\";";
+                output_ss << "\n" << "   " << "char commit_hash[] = \"" << RL_TOOLS_STRINGIFY(RL_TOOLS_COMMIT_HASH) << "\";";
+                output_ss << "\n" << "}";
+                std::string output_string = output_ss.str();
+                bool stored_compressed = false;
+#ifdef RL_TOOLS_ENABLE_ZLIB
+                {
+                    std::filesystem::path checkpoint_code_path = std::filesystem::path(step_folder) / "checkpoint.h.gz";
+                    std::vector<uint8_t> checkpoint_output;
+                    if(!compress_zlib(output_string, checkpoint_output)){
+                        std::cerr << "Error while compressing trajectories." << std::endl;
+                        return;
+                    }
+                    std::ofstream actor_output_file(checkpoint_code_path, std::ios::binary);
+                    actor_output_file.write(reinterpret_cast<const char*>(checkpoint_output.data()), checkpoint_output.size());
+                    actor_output_file.close();
+                    stored_compressed = true;
+                };
+#endif
+                if(!stored_compressed || STORE_UNCOMPRESSED_ANYWAYS){
+                    std::filesystem::path checkpoint_code_path = std::filesystem::path(step_folder) / "checkpoint.h";
+                    std::cerr << "Checkpointing at step: " << ts.step << " to: " << checkpoint_code_path << std::endl;
+                    std::ofstream actor_output_file(checkpoint_code_path);
+                    actor_output_file << output_string;
+                    actor_output_file.close();
+                }
+
+                free(device, actor_buffer);
+            }
+    }
+
     template <typename DEVICE, typename CONFIG>
     bool step(DEVICE& device, rl::loop::steps::checkpoint::State<CONFIG>& ts){
         using T = typename CONFIG::T;
@@ -56,63 +116,32 @@ namespace rl_tools{
             std::filesystem::path step_folder = ts.extrack_seed_path / "steps" / step_ss.str();
             std::filesystem::create_directories(step_folder);
             std::filesystem::path checkpoint_path = step_folder / "checkpoint.h5";
-            std::cerr << "Checkpointing at step: " << ts.step << " to: " << checkpoint_path << std::endl;
             auto& actor = get_actor(ts);
             using ACTOR_TYPE = typename CONFIG::NN::ACTOR_TYPE;
-            using ACTOR_FORWARD_TYPE = typename ACTOR_TYPE::template CHANGE_CAPABILITY<nn::layer_capability::Forward>;
+            static constexpr TI BATCH_SIZE = 13;
+            using INPUT_SHAPE = tensor::Replace<typename ACTOR_TYPE::INPUT_SHAPE, BATCH_SIZE, 1>;
+            using EVALUATION_ACTOR_TYPE_BATCH_SIZE = typename CONFIG::NN::ACTOR_TYPE::template CHANGE_BATCH_SIZE<TI, BATCH_SIZE>;
+            using EVALUATION_ACTOR_TYPE = typename EVALUATION_ACTOR_TYPE_BATCH_SIZE::template CHANGE_CAPABILITY<nn::capability::Forward<>>;
+            EVALUATION_ACTOR_TYPE evaluation_actor;
+            malloc(device, evaluation_actor);
+            copy(device, device, actor, evaluation_actor);
+//            using ACTOR_FORWARD_TYPE = nn_models::sequential::Build<nn::capability::Forward<>, typename ACTOR_TYPE::SPEC::ORIGINAL_ROOT, INPUT_SHAPE>;
 //            using ACTOR_FORWARD_TYPE = ACTOR_TYPE;
-            ACTOR_FORWARD_TYPE actor_forward;
-            malloc(device, actor_forward);
+//            ACTOR_FORWARD_TYPE actor_forward;
+//            malloc(device, actor_forward);
+//            copy(device, device, actor, actor_forward);
 #if defined(RL_TOOLS_ENABLE_HDF5) && !defined(RL_TOOLS_DISABLE_HDF5)
+            std::cerr << "Checkpointing at step: " << ts.step << " to: " << checkpoint_path << std::endl;
             try{
                 auto actor_file = HighFive::File(checkpoint_path.string(), HighFive::File::Overwrite);
-                copy(device, device, actor, actor_forward);
-                save(device, actor_forward, actor_file.createGroup("actor"));
+                save(device, evaluation_actor, actor_file.createGroup("actor"));
             }
             catch(HighFive::Exception& e){
                 std::cerr << "Error while saving actor at " + checkpoint_path.string() + ": " << e.what() << std::endl;
             }
 #endif
-            typename ACTOR_TYPE::template Buffer<1> actor_buffer;
-            malloc(device, actor_buffer);
-            copy(device, device, actor, actor_forward);
-            auto actor_weights = save_code(device, actor_forward, std::string("rl_tools::checkpoint::actor"), true);
-            std::stringstream output_ss;
-            output_ss << actor_weights;
-            {
-                MatrixStatic<matrix::Specification<T, TI, 1, ACTOR_TYPE::INPUT_DIM>> input;
-                MatrixStatic<matrix::Specification<T, TI, 1, ACTOR_TYPE::OUTPUT_DIM>> output;
-                auto rng_copy = ts.rng;
-                randn(device, input, rng_copy);
-                evaluate(device, actor, input, output, actor_buffer, rng_copy);
-                output_ss << "\n" << save_code(device, input, std::string("rl_tools::checkpoint::example::input"), true);
-                output_ss << "\n" << save_code(device, output, std::string("rl_tools::checkpoint::example::output"), true);
-                free(device, input);
-                free(device, output);
-            }
-#ifndef RL_TOOLS_ENABLE_ZLIB
-            std::filesystem::path checkpoint_code_path = step_folder / "checkpoint.h";
-            std::ofstream actor_output_file(checkpoint_code_path);
-            actor_output_file << output_ss.str();
-            actor_output_file.close();
-#else
-            std::filesystem::path checkpoint_code_path = step_folder / "checkpoint.h.gz";
-            std::vector<uint8_t> checkpoint_output;
-            if(!compress_zlib(output_ss.str(), checkpoint_output)){
-                std::cerr << "Error while compressing trajectories." << std::endl;
-                return true;
-            }
-            std::ofstream actor_output_file(checkpoint_code_path, std::ios::binary);
-            actor_output_file.write(reinterpret_cast<const char*>(checkpoint_output.data()), checkpoint_output.size());
-            actor_output_file.close();
-#endif
-            free(device, actor_buffer);
-            free(device, actor_forward);
-
-            actor_output_file << "\n" << "namespace rl_tools::checkpoint::meta{";
-            actor_output_file << "\n" << "   " << "char name[] = \"" << step_folder.string() << "\";";
-            actor_output_file << "\n" << "   " << "char commit_hash[] = \"" << RL_TOOLS_STRINGIFY(RL_TOOLS_COMMIT_HASH) << "\";";
-            actor_output_file << "\n" << "}";
+            rl::loop::steps::checkpoint::save_code<BATCH_SIZE>(device, ts, step_folder.string(), evaluation_actor);
+            free(device, evaluation_actor);
 
         }
         bool finished = step(device, static_cast<typename STATE::NEXT&>(ts));

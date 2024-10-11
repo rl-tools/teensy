@@ -5,31 +5,12 @@
 #include "../../../nn/activation_functions.h"
 #include "../../../utils/generic/typing.h"
 #include "../../../containers/matrix/matrix.h"
-#include "../../../nn/mode.h"
 
 
 #include "layer.h"
 
 RL_TOOLS_NAMESPACE_WRAPPER_START
 namespace rl_tools{
-    namespace nn::layers::sample_and_squash{
-        template <typename MODE>
-        constexpr bool is_mode_external_noise(const MODE& mode){
-            return false;
-        }
-        template <typename BASE_MODE>
-        constexpr bool is_mode_external_noise(const mode::ExternalNoise<BASE_MODE> & mode){
-            return true;
-        }
-        template <typename MODE>
-        constexpr bool is_mode_sample(const MODE& mode){
-            return false;
-        }
-        template <typename BASE_MODE>
-        constexpr bool is_mode_sample(const mode::Sample<BASE_MODE> & mode){
-            return true;
-        }
-    }
     template <typename DEVICE, typename SPEC>
     void malloc(DEVICE& device, nn::layers::sample_and_squash::LayerForward<SPEC>& layer){ }
     template <typename DEVICE, typename SPEC>
@@ -68,6 +49,12 @@ namespace rl_tools{
     void free(DEVICE& device, nn::layers::sample_and_squash::Buffer<SPEC>& buffer) {
         free(device, buffer.noise);
     }
+    template<typename DEVICE>
+    void malloc(DEVICE& device, nn::layers::sample_and_squash::State& state) { } // no-op
+    template<typename DEVICE, typename SPEC, typename RNG, typename MODE>
+    void reset(DEVICE& device, const nn::layers::sample_and_squash::LayerForward<SPEC>& layer, nn::layers::sample_and_squash::State& state, RNG&, Mode<MODE> mode = Mode<mode::Default<>>{}) { } // no-op
+    template<typename DEVICE>
+    void free(DEVICE& device, nn::layers::sample_and_squash::State& state) { } // no-op
     template <typename SOURCE_DEVICE, typename TARGET_DEVICE, typename SOURCE_SPEC, typename TARGET_SPEC>
     void copy(SOURCE_DEVICE& source_device, TARGET_DEVICE& target_device, nn::layers::sample_and_squash::Buffer<SOURCE_SPEC>& source, nn::layers::sample_and_squash::Buffer<TARGET_SPEC>& target){
         copy(source_device, target_device, source.noise, target.noise);
@@ -96,13 +83,15 @@ namespace rl_tools{
     }
     template<typename DEVICE, typename SPEC, typename OPTIMIZER>
     void update(DEVICE& device, nn::layers::sample_and_squash::LayerGradient<SPEC>& layer, OPTIMIZER& optimizer){
-        if constexpr(SPEC::PARAMETERS::ADAPTIVE_ALPHA){
+        if constexpr(SPEC::PARAMETERS::ADAPTIVE_ALPHA && SPEC::PARAMETERS::UPDATE_ALPHA_WITH_ACTOR){
             update(device, layer.log_alpha, optimizer);
         }
     }
     template<typename DEVICE, typename SPEC, typename OPTIMIZER>
     void _reset_optimizer_state(DEVICE& device, nn::layers::sample_and_squash::LayerGradient<SPEC>& layer, OPTIMIZER& optimizer) {
-        _reset_optimizer_state(device, layer.log_alpha, optimizer);
+        if constexpr(SPEC::PARAMETERS::UPDATE_ALPHA_WITH_ACTOR){
+            _reset_optimizer_state(device, layer.log_alpha, optimizer);
+        }
     }
 
     template<typename SOURCE_DEVICE, typename TARGET_DEVICE, typename SOURCE_SPEC, typename TARGET_SPEC>
@@ -123,8 +112,8 @@ namespace rl_tools{
     void sample(DEVICE& device, nn::layers::sample_and_squash::Buffer<SPEC>& buffer, RNG& rng) {
         randn(device, buffer.noise, rng);
     }
-    template <typename DEVICE, typename SPEC, typename INPUT_SPEC, typename OUTPUT_SPEC, typename BUFFER_SPEC, typename RNG, typename MODE = nn::mode::Default>
-    RL_TOOLS_FUNCTION_PLACEMENT void evaluate_per_sample(const DEVICE& device, const nn::layers::sample_and_squash::LayerForward<SPEC>& layer, const Matrix<INPUT_SPEC>& input, Matrix<OUTPUT_SPEC>& output, nn::layers::sample_and_squash::Buffer<BUFFER_SPEC>& buffer, RNG& rng, typename DEVICE::index_t row_i, const nn::Mode<MODE>& mode = nn::Mode<nn::mode::Default>{}){
+    template <typename DEVICE, typename SPEC, typename INPUT_SPEC, typename OUTPUT_SPEC, typename BUFFER_SPEC, typename RNG, typename MODE = mode::Default<>>
+    RL_TOOLS_FUNCTION_PLACEMENT void evaluate_per_sample(DEVICE& device, const nn::layers::sample_and_squash::LayerForward<SPEC>& layer, const Matrix<INPUT_SPEC>& input, Matrix<OUTPUT_SPEC>& output, nn::layers::sample_and_squash::Buffer<BUFFER_SPEC>& buffer, RNG& rng, typename DEVICE::index_t row_i, const Mode<MODE>& mode = Mode<mode::Default<>>{}){
         using TI = typename DEVICE::index_t;
         using T = typename SPEC::T;
         using PARAMETERS = typename SPEC::PARAMETERS;
@@ -134,21 +123,29 @@ namespace rl_tools{
             T log_std = get(input, row_i, SPEC::DIM + col_i);
             T log_std_clipped = math::clamp(device.math, log_std, (T)PARAMETERS::LOG_STD_LOWER_BOUND, (T)PARAMETERS::LOG_STD_UPPER_BOUND);
             T std = math::exp(device.math, log_std_clipped);
+            add_scalar(device, device.logger, "actor_eval_std", std, 100);
+            add_scalar(device, device.logger, "actor_eval_mean", mean, 100);
             T noise;
-            if constexpr(nn::layers::sample_and_squash::is_mode_external_noise(MODE())){
+            if constexpr(mode::is<MODE, nn::layers::sample_and_squash::mode::ExternalNoise>){
                 noise = get(buffer.noise, row_i, col_i);
             }
             else{
-                if constexpr(nn::layers::sample_and_squash::is_mode_sample(MODE())){
+                if constexpr(mode::is<MODE, mode::Default> || mode::is<MODE, mode::Rollout>){
                     noise = random::normal_distribution::sample(device.random, (T)0, (T)1, rng);
                 }
                 else{
-                    noise = 0;
+                    if constexpr(mode::is<MODE, mode::Evaluation>){
+                        noise = 0;
+                    }
+                    else{
+                        noise = 0;
+                        utils::assert_exit(device.logger, false, "Invalid mode");
+                    }
                 }
             }
 //                set(layer.noise, row_i, col_i, noise);
             T sample;
-            if constexpr(utils::typing::is_base_of_v<nn::mode::Inference, MODE>){
+            if constexpr(mode::is<MODE, mode::Evaluation>){
                 sample = mean;
             }
             else{
@@ -156,6 +153,7 @@ namespace rl_tools{
             }
 //                set(layer.pre_squashing, row_i, col_i, sample);
             T squashed = math::tanh(device.math, sample);
+            add_scalar(device, device.logger, "actor_eval_action_squashed", squashed, 100);
 
             set(output, row_i, col_i, squashed);
 //                set(layer.output, row_i, col_i, squashed);
@@ -164,8 +162,8 @@ namespace rl_tools{
         }
 //            set(layer.log_probabilities, 0, row_i, log_prob);
     }
-    template <typename DEVICE, typename SPEC, typename INPUT_SPEC, typename OUTPUT_SPEC, typename BUFFER_SPEC, typename RNG, typename MODE = nn::mode::Default>
-    void evaluate(const DEVICE& device, const nn::layers::sample_and_squash::LayerForward<SPEC>& layer, const Matrix<INPUT_SPEC>& input, Matrix<OUTPUT_SPEC>& output, nn::layers::sample_and_squash::Buffer<BUFFER_SPEC>& buffer, RNG& rng, const nn::Mode<MODE>& mode = nn::Mode<nn::mode::Default>{}){
+    template <typename DEVICE, typename SPEC, typename INPUT_SPEC, typename OUTPUT_SPEC, typename BUFFER_SPEC, typename RNG, typename MODE = mode::Default<>>
+    void evaluate(DEVICE& device, const nn::layers::sample_and_squash::LayerForward<SPEC>& layer, const Matrix<INPUT_SPEC>& input, Matrix<OUTPUT_SPEC>& output, nn::layers::sample_and_squash::Buffer<BUFFER_SPEC>& buffer, RNG& rng, const Mode<MODE>& mode = Mode<mode::Default<>>{}){
         static_assert(INPUT_SPEC::COLS == 2*SPEC::DIM);
         static_assert(OUTPUT_SPEC::COLS == SPEC::DIM);
         static_assert(INPUT_SPEC::ROWS == OUTPUT_SPEC::ROWS);
@@ -176,12 +174,12 @@ namespace rl_tools{
             evaluate_per_sample(device, layer, input, output, buffer, rng, row_i, mode);
         }
     }
-    template <typename DEVICE, typename SPEC, typename INPUT_SPEC, typename OUTPUT_SPEC, typename BUFFER_SPEC, typename RNG, typename MODE = nn::mode::Default>
-    void forward(const DEVICE& device, nn::layers::sample_and_squash::LayerBackward<SPEC>& layer, const Matrix<INPUT_SPEC>& input, Matrix<OUTPUT_SPEC>& output, nn::layers::sample_and_squash::Buffer<BUFFER_SPEC>& buffer, RNG& rng, const nn::Mode<MODE>& mode = nn::Mode<nn::mode::Default>{}){
+    template <typename DEVICE, typename SPEC, typename INPUT_SPEC, typename OUTPUT_SPEC, typename BUFFER_SPEC, typename RNG, typename MODE = mode::Default<>>
+    void forward(DEVICE& device, nn::layers::sample_and_squash::LayerBackward<SPEC>& layer, const Matrix<INPUT_SPEC>& input, Matrix<OUTPUT_SPEC>& output, nn::layers::sample_and_squash::Buffer<BUFFER_SPEC>& buffer, RNG& rng, const Mode<MODE>& mode = Mode<mode::Default<>>{}){
         evaluate(device, layer, input, output, buffer, rng, mode);
     }
-    template <typename DEVICE, typename SPEC, typename INPUT_SPEC, typename BUFFER_SPEC, typename RNG, typename MODE = nn::mode::Default>
-    RL_TOOLS_FUNCTION_PLACEMENT void forward_per_sample(const DEVICE& device, nn::layers::sample_and_squash::LayerGradient<SPEC>& layer, const Matrix<INPUT_SPEC>& input, nn::layers::sample_and_squash::Buffer<BUFFER_SPEC>& buffer, RNG& rng, typename DEVICE::index_t row_i, const nn::Mode<MODE>& mode = nn::Mode<nn::mode::Default>{}){
+    template <typename DEVICE, typename SPEC, typename INPUT_SPEC, typename BUFFER_SPEC, typename RNG, typename MODE = mode::Default<>>
+    RL_TOOLS_FUNCTION_PLACEMENT void forward_per_sample(DEVICE& device, nn::layers::sample_and_squash::LayerGradient<SPEC>& layer, const Matrix<INPUT_SPEC>& input, nn::layers::sample_and_squash::Buffer<BUFFER_SPEC>& buffer, RNG& rng, typename DEVICE::index_t row_i, const Mode<MODE>& mode = Mode<mode::Default<>>{}){
         // copy of the evaluate but with the log_probabilities commented in
         using TI = typename DEVICE::index_t;
         using T = typename SPEC::T;
@@ -193,20 +191,31 @@ namespace rl_tools{
             T log_std_clipped = math::clamp(device.math, log_std, (T)PARAMETERS::LOG_STD_LOWER_BOUND, (T)PARAMETERS::LOG_STD_UPPER_BOUND);
             T std = math::exp(device.math, log_std_clipped);
             T noise;
-            if constexpr(nn::layers::sample_and_squash::is_mode_external_noise(MODE())){
+            if(row_i == 0){
+                add_scalar(device, device.logger, "actor_std", std, 100);
+                add_scalar(device, device.logger, "actor_mean", mean, 100);
+                add_scalar(device, device.logger, "actor_abs_mean", math::abs(device.math, mean), 100);
+            }
+            if constexpr(mode::is<MODE, nn::layers::sample_and_squash::mode::ExternalNoise>){
                 noise = get(buffer.noise, row_i, col_i);
             }
             else{
-                if constexpr(nn::layers::sample_and_squash::is_mode_sample(MODE())){
+                if constexpr(mode::is<MODE, mode::Default> || mode::is<MODE, mode::Rollout>){
                     noise = random::normal_distribution::sample(device.random, (T)0, (T)1, rng);
                 }
                 else{
-                    noise = 0;
+                    if constexpr(mode::is<MODE, mode::Evaluation>){
+                        noise = 0;
+                    }
+                    else{
+                        noise = 0;
+                        utils::assert_exit(device.logger, false, "Invalid mode");
+                    }
                 }
             }
             set(layer.noise, row_i, col_i, noise);
             T sample;
-            if constexpr(utils::typing::is_base_of_v<nn::mode::Inference, MODE>){
+            if constexpr(mode::is<MODE, mode::Evaluation>){
                 sample = mean;
             }
             else{
@@ -214,6 +223,9 @@ namespace rl_tools{
             }
             set(layer.pre_squashing, row_i, col_i, sample);
             T squashed = math::tanh(device.math, sample);
+            if(row_i == 0){
+                add_scalar(device, device.logger, "actor_action_squashed", squashed, 100);
+            }
 
 //            set(output, row_i, col_i, squashed);
             set(layer.output, row_i, col_i, squashed);
@@ -222,8 +234,8 @@ namespace rl_tools{
         }
         set(layer.log_probabilities, 0, row_i, log_prob);
     }
-    template <typename DEVICE, typename SPEC, typename INPUT_SPEC, typename BUFFER_SPEC, typename RNG, typename MODE = nn::mode::Default>
-    void forward(const DEVICE& device, nn::layers::sample_and_squash::LayerGradient<SPEC>& layer, const Matrix<INPUT_SPEC>& input, nn::layers::sample_and_squash::Buffer<BUFFER_SPEC>& buffer, RNG& rng, const nn::Mode<MODE>& mode = nn::Mode<nn::mode::Default>{}){
+    template <typename DEVICE, typename SPEC, typename INPUT_SPEC, typename BUFFER_SPEC, typename RNG, typename MODE = mode::Default<>>
+    void forward(DEVICE& device, nn::layers::sample_and_squash::LayerGradient<SPEC>& layer, const Matrix<INPUT_SPEC>& input, nn::layers::sample_and_squash::Buffer<BUFFER_SPEC>& buffer, RNG& rng, const Mode<MODE>& mode = Mode<mode::Default<>>{}){
         static_assert(INPUT_SPEC::COLS == 2*SPEC::DIM);
         using TI = typename DEVICE::index_t;
         using T = typename SPEC::T;
@@ -232,20 +244,22 @@ namespace rl_tools{
             forward_per_sample(device, layer, input, buffer, rng, row_i, mode);
         }
     }
-    template<typename DEVICE, typename SPEC, typename D_OUTPUT_SPEC, typename D_INPUT_SPEC, typename BUFFER_SPEC, typename MODE = nn::mode::Default>
-    void backward_input(DEVICE& device, const nn::layers::sample_and_squash::LayerBackward<SPEC>& layer, const Matrix<D_OUTPUT_SPEC>& d_output, Matrix<D_INPUT_SPEC>& d_input, nn::layers::sample_and_squash::Buffer<BUFFER_SPEC>&, const nn::Mode<MODE>& mode = nn::Mode<nn::mode::Default>{}){
-
+    template<typename DEVICE, typename SPEC, typename D_OUTPUT_SPEC, typename D_INPUT_SPEC, typename BUFFER_SPEC, typename MODE = mode::Default<>>
+    void backward_input(DEVICE& device, const nn::layers::sample_and_squash::LayerBackward<SPEC>& layer, const Matrix<D_OUTPUT_SPEC>& d_output, Matrix<D_INPUT_SPEC>& d_input, nn::layers::sample_and_squash::Buffer<BUFFER_SPEC>&, const Mode<MODE>& mode = Mode<mode::Default<>>{}){
+        utils::assert_exit(device, false, "Not implemented");
     }
-    template<typename DEVICE, typename SPEC, typename INPUT_SPEC, typename D_OUTPUT_SPEC, typename BUFFER_SPEC, typename MODE = nn::mode::Default>
-    void backward(DEVICE& device, nn::layers::sample_and_squash::LayerGradient<SPEC>& layer, const Matrix<INPUT_SPEC>& input, Matrix<D_OUTPUT_SPEC>& d_output, nn::layers::sample_and_squash::Buffer<BUFFER_SPEC>&, const nn::Mode<MODE>& mode = nn::Mode<nn::mode::Default>{}) {
-
+    template<typename DEVICE, typename SPEC, typename INPUT_SPEC, typename D_OUTPUT_SPEC, typename BUFFER_SPEC, typename MODE = mode::Default<>>
+    void backward(DEVICE& device, nn::layers::sample_and_squash::LayerGradient<SPEC>& layer, const Matrix<INPUT_SPEC>& input, Matrix<D_OUTPUT_SPEC>& d_output, nn::layers::sample_and_squash::Buffer<BUFFER_SPEC>&, const Mode<MODE>& mode = Mode<mode::Default<>>{}) {
+        utils::assert_exit(device, false, "Not implemented");
     }
-    template<typename DEVICE, typename SPEC, typename INPUT_SPEC, typename D_OUTPUT_SPEC, typename D_INPUT_SPEC, typename BUFFER_SPEC, typename MODE = nn::mode::Default>
-    RL_TOOLS_FUNCTION_PLACEMENT typename SPEC::T backward_full_per_sample(DEVICE& device, nn::layers::sample_and_squash::LayerGradient<SPEC>& layer, const Matrix<INPUT_SPEC>& input, Matrix<D_OUTPUT_SPEC>& d_output, Matrix<D_INPUT_SPEC>& d_input, nn::layers::sample_and_squash::Buffer<BUFFER_SPEC>&, typename SPEC::T alpha, typename DEVICE::index_t batch_i, const nn::Mode<MODE>& mode = nn::Mode<nn::mode::Default>{}) {
+    template<typename DEVICE, typename SPEC, typename INPUT_SPEC, typename D_OUTPUT_SPEC, typename D_INPUT_SPEC, typename BUFFER_SPEC, typename MODE = mode::Default<>>
+    RL_TOOLS_FUNCTION_PLACEMENT typename SPEC::T backward_full_per_sample(DEVICE& device, nn::layers::sample_and_squash::LayerGradient<SPEC>& layer, const Matrix<INPUT_SPEC>& input, Matrix<D_OUTPUT_SPEC>& d_output, Matrix<D_INPUT_SPEC>& d_input, nn::layers::sample_and_squash::Buffer<BUFFER_SPEC>&, typename SPEC::T alpha, typename DEVICE::index_t batch_i, const Mode<MODE>& mode = Mode<mode::Default<>>{}) {
         using T = typename SPEC::T;
         using TI = typename DEVICE::index_t;
         constexpr TI ACTION_DIM = SPEC::DIM;
-        constexpr TI BATCH_SIZE = INPUT_SPEC::ROWS;
+        using LAYER = nn::layers::sample_and_squash::LayerGradient<SPEC>;
+        constexpr TI INTERNAL_BATCH_SIZE = LAYER::INTERNAL_BATCH_SIZE;
+        constexpr TI BATCH_SIZE = LAYER::SPEC::INTERNAL_BATCH_SIZE;
 /*
         Gradient of the loss function:
         mu, std = policy(observation)
@@ -266,13 +280,16 @@ namespace rl_tools{
         d/d_mu min(Q_1, Q_2) = d/d_action min(Q_1, Q_2) * d/d_mu action
         d/d_mu action = d/d_action_sample tanh(action_sample) * d/d_mu action_sample
 */
-        T d_alpha = 0;
         T entropy = 0;
+        bool all_d_output_zero = true;
         for(TI action_i = 0; action_i < ACTION_DIM; action_i++){
             T action = get(layer.output, batch_i, action_i); // tanh(action_sample)
             T d_mu = 0;
             T d_std = 0;
             T d_output_value = get(d_output, batch_i, action_i);
+            if(d_output_value != 0){
+                all_d_output_zero = false;
+            }
             T d_tanh_pre_activation = d_output_value * (1-action*action);
             d_mu = d_tanh_pre_activation;
             d_std = d_tanh_pre_activation * get(layer.noise, batch_i, action_i);
@@ -287,7 +304,7 @@ namespace rl_tools{
             T d_log_prob_d_mean = random::normal_distribution::d_log_prob_d_mean(device.random, mu, log_std_clamped, action_sample);
             T d_log_prob_d_sample = random::normal_distribution::d_log_prob_d_sample(device.random, mu, log_std_clamped, action_sample);
             // NOTE: The following needs to be divided by BATCH_SIZE (in contrast to the previous d_mu and d_std). d_mu and d_std are already taking into account the mean prior to the backward call of the critic. Thence the d_critic_X_input is already divided by BATCH_SIZE
-            d_mu += alpha/BATCH_SIZE * (d_log_prob_d_mean + d_log_prob_d_sample + 2*action);
+            d_mu += alpha/INTERNAL_BATCH_SIZE * (d_log_prob_d_mean + d_log_prob_d_sample + 2*action);
 
             T noise = get(layer.noise, batch_i, action_i);
             T d_log_prob_d_log_std = random::normal_distribution::d_log_prob_d_log_std(device.random, mu, log_std_clamped, action_sample);
@@ -301,27 +318,118 @@ namespace rl_tools{
             T action_log_prob = random::normal_distribution::log_prob(device.random, mu, log_std_clamped, action_sample) - math::log(typename DEVICE::SPEC::MATH{}, one_minus_action_square_plus_eps);
             entropy += -action_log_prob;
         }
-        d_alpha += entropy - SPEC::PARAMETERS::TARGET_ENTROPY;
+        if(batch_i == 0){
+            add_scalar(device, device.logger, "actor_entropy", entropy, 100);
+        }
+        T d_alpha = entropy - SPEC::PARAMETERS::TARGET_ENTROPY;
+        if(all_d_output_zero){
+            d_alpha = 0;
+        }
+        if(batch_i == 0){
+            add_scalar(device, device.logger, "actor_d_alpha", d_alpha, 100);
+        }
         return alpha*d_alpha; // d_log_alpha
     }
-    template<typename DEVICE, typename SPEC, typename INPUT_SPEC, typename D_OUTPUT_SPEC, typename D_INPUT_SPEC, typename BUFFER_SPEC, typename MODE = nn::mode::Default>
-    void backward_full(DEVICE& device, nn::layers::sample_and_squash::LayerGradient<SPEC>& layer, const Matrix<INPUT_SPEC>& input, Matrix<D_OUTPUT_SPEC>& d_output, Matrix<D_INPUT_SPEC>& d_input, nn::layers::sample_and_squash::Buffer<BUFFER_SPEC>& buffer, const nn::Mode<MODE>& mode = nn::Mode<nn::mode::Default>{}) {
+    template<typename DEVICE, typename SPEC, typename INPUT_SPEC, typename D_OUTPUT_SPEC, typename D_INPUT_SPEC, typename BUFFER_SPEC, typename MODE = mode::Default<>>
+    void backward_full(DEVICE& device, nn::layers::sample_and_squash::LayerGradient<SPEC>& layer, const Matrix<INPUT_SPEC>& input, Matrix<D_OUTPUT_SPEC>& d_output, Matrix<D_INPUT_SPEC>& d_input, nn::layers::sample_and_squash::Buffer<BUFFER_SPEC>& buffer, const Mode<MODE>& mode = Mode<mode::Default<>>{}) {
         using T = typename SPEC::T;
         using TI = typename DEVICE::index_t;
-        constexpr TI BATCH_SIZE = INPUT_SPEC::ROWS;
+        using LAYER = nn::layers::sample_and_squash::LayerGradient<SPEC>;
+        constexpr TI BATCH_SIZE = LAYER::SPEC::INTERNAL_BATCH_SIZE;
+        constexpr TI INTERNAL_BATCH_SIZE = LAYER::INTERNAL_BATCH_SIZE;
         T log_alpha = get(layer.log_alpha.parameters, 0, 0);
         T alpha = math::exp(typename DEVICE::SPEC::MATH{}, log_alpha);
         T d_log_alpha = 0;
-        for(TI batch_i = 0; batch_i < BATCH_SIZE; batch_i++){
+        for(TI batch_i = 0; batch_i < INTERNAL_BATCH_SIZE; batch_i++){
             d_log_alpha += backward_full_per_sample(device, layer, input, d_output, d_input, buffer, alpha, batch_i, mode);
         }
-        increment(layer.log_alpha.gradient, 0, 0, d_log_alpha/BATCH_SIZE);
+        add_scalar(device, device.logger, "actor_alpha", alpha, 100);
+
+        // TODO: change INTERNAL_BATCH_SIZE to sum(reset) if MASK_NON_TERMINAL is used
+        increment(layer.log_alpha.gradient, 0, 0, d_log_alpha/INTERNAL_BATCH_SIZE); // note if changing the BATCH_SIZE to INTERNAL_BATCH_SIZE (loss: mean over BATCH & sum over SEQ_LEN vs mean over BATCH & mean over SEQ_LEN) mind to also change it in the sac/operations_generic.h
     }
-    template<typename SPEC>
-    constexpr auto& output(nn::layers::sample_and_squash::LayerGradient<SPEC>& l){
+    template<typename DEVICE, typename SPEC>
+    constexpr auto& output(DEVICE& device, nn::layers::sample_and_squash::LayerGradient<SPEC>& l){
         return l.output;
     }
 }
 RL_TOOLS_NAMESPACE_WRAPPER_END
 
+// Tensor proxies
+RL_TOOLS_NAMESPACE_WRAPPER_START
+namespace rl_tools{
+    template<typename DEVICE, typename LAYER_SPEC, typename INPUT_SPEC, typename OUTPUT_SPEC, typename BUFFER_SPEC, typename RNG, typename MODE = mode::Default<>>
+    void evaluate(DEVICE& device, const nn::layers::sample_and_squash::LayerForward<LAYER_SPEC>& layer, const Tensor<INPUT_SPEC>& input, Tensor<OUTPUT_SPEC>& output, nn::layers::sample_and_squash::Buffer<BUFFER_SPEC>& buffer, RNG& rng, const Mode<MODE>& mode = Mode<mode::Default<>>{}) {
+        auto matrix_view_input = matrix_view(device, input);
+        auto matrix_view_output = matrix_view(device, output);
+        evaluate(device, layer, matrix_view_input, matrix_view_output, buffer, rng, mode);
+    }
+    template<typename DEVICE, typename LAYER_SPEC, typename INPUT_SPEC, typename OUTPUT_SPEC, typename BUFFER_SPEC, typename RNG, typename MODE = mode::Default<>>
+    void evaluate_step(DEVICE& device, const nn::layers::sample_and_squash::LayerForward<LAYER_SPEC>& layer, const Tensor<INPUT_SPEC>& input, nn::layers::sample_and_squash::State& state, Tensor<OUTPUT_SPEC>& output, nn::layers::sample_and_squash::Buffer<BUFFER_SPEC>& buffer, RNG& rng, const Mode<MODE>& mode = Mode<mode::Default<>>{}) {
+        auto matrix_view_input = matrix_view(device, input);
+        auto matrix_view_output = matrix_view(device, output);
+        evaluate(device, layer, matrix_view_input, matrix_view_output, buffer, rng, mode);
+    }
+    template<typename DEVICE, typename LAYER_SPEC, typename INPUT_SPEC, typename OUTPUT_SPEC, typename BUFFER_SPEC, typename RNG, typename MODE = mode::Default<>>
+    void forward(DEVICE& device, nn::layers::sample_and_squash::LayerBackward<LAYER_SPEC>& layer, const Tensor<INPUT_SPEC>& input, Tensor<OUTPUT_SPEC>& output, nn::layers::sample_and_squash::Buffer<BUFFER_SPEC>& buffer, RNG& rng, const Mode<MODE>& mode = Mode<mode::Default<>>{}){
+        auto matrix_view_input = matrix_view(device, input);
+        auto matrix_view_output = matrix_view(device, output);
+        forward(device, layer, matrix_view_input, buffer, rng, mode);
+        copy(device, device, layer.output, matrix_view_output);
+    }
+    template<typename DEVICE, typename LAYER_SPEC, typename INPUT_SPEC, typename BUFFER_SPEC, typename RNG, typename MODE = mode::Default<>>
+    void forward(DEVICE& device, nn::layers::sample_and_squash::LayerGradient<LAYER_SPEC>& layer, const Tensor<INPUT_SPEC>& input, nn::layers::sample_and_squash::Buffer<BUFFER_SPEC>& buffer, RNG& rng, const Mode<MODE>& mode = Mode<mode::Default<>>{}) {
+        auto matrix_view_input = matrix_view(device, input);
+        forward(device, layer, matrix_view_input, buffer, rng, mode);
+    }
+    template<typename DEVICE, typename LAYER_SPEC, typename INPUT_SPEC, typename OUTPUT_SPEC, typename BUFFER_SPEC, typename RNG, typename MODE = mode::Default<>>
+    void forward(DEVICE& device, nn::layers::sample_and_squash::LayerGradient<LAYER_SPEC>& layer, const Tensor<INPUT_SPEC>& input, Tensor<OUTPUT_SPEC>& output, nn::layers::sample_and_squash::Buffer<BUFFER_SPEC>& buffer, RNG& rng, const Mode<MODE>& mode = Mode<mode::Default<>>{}) {
+        auto matrix_view_input = matrix_view(device, input);
+        auto matrix_view_output = matrix_view(device, output);
+        forward(device, layer, matrix_view_input, matrix_view_output, buffer, rng, mode);
+    }
+    template<typename DEVICE, typename LAYER_SPEC, typename D_OUTPUT_SPEC, typename D_INPUT_SPEC, typename BUFFER_SPEC, typename MODE = mode::Default<>>
+    void backward_input(DEVICE& device, const nn::layers::sample_and_squash::LayerBackward<LAYER_SPEC>& layer, const Tensor<D_OUTPUT_SPEC>& d_output, Tensor<D_INPUT_SPEC>& d_input, nn::layers::sample_and_squash::Buffer<BUFFER_SPEC>& buffer, const Mode<MODE>& mode = Mode<mode::Default<>>{}){
+        auto matrix_view_d_output = matrix_view(device, d_output);
+        auto matrix_view_d_input = matrix_view(device, d_input);
+        backward_input(device, layer, matrix_view_d_output, matrix_view_d_input, buffer, mode);
+    }
+
+    template<typename DEVICE, typename LAYER_SPEC, typename INPUT_SPEC, typename D_OUTPUT_SPEC, typename BUFFER_SPEC, typename MODE = mode::Default<>>
+    void backward(DEVICE& device, nn::layers::sample_and_squash::LayerGradient<LAYER_SPEC>& layer, const Tensor<INPUT_SPEC>& input, Tensor<D_OUTPUT_SPEC>& d_output, nn::layers::sample_and_squash::Buffer<BUFFER_SPEC>& buffer, const Mode<MODE>& mode = Mode<mode::Default<>>{}) {
+        auto matrix_view_input = matrix_view(device, input);
+        auto matrix_view_d_output = matrix_view(device, d_output);
+        backward(device, layer, matrix_view_input, matrix_view_d_output, buffer, mode);
+    }
+
+    template<typename DEVICE, typename LAYER_SPEC, typename INPUT_SPEC, typename D_OUTPUT_SPEC, typename D_INPUT_SPEC, typename BUFFER_SPEC, typename MODE = mode::Default<>>
+    void backward_full(DEVICE& device, nn::layers::sample_and_squash::LayerGradient<LAYER_SPEC>& layer, const Tensor<INPUT_SPEC>& input, Tensor<D_OUTPUT_SPEC>& d_output, Tensor<D_INPUT_SPEC>& d_input, nn::layers::sample_and_squash::Buffer<BUFFER_SPEC>& buffer, const Mode<MODE>& mode = Mode<mode::Default<>>{}) {
+        auto matrix_view_input = matrix_view(device, input);
+        auto matrix_view_d_output = matrix_view(device, d_output);
+        auto matrix_view_d_input = matrix_view(device, d_input);
+        backward_full(device, layer, matrix_view_input, matrix_view_d_output, matrix_view_d_input, buffer, mode);
+    }
+    template <typename DEVICE, typename SPEC, typename MODE = mode::Default<>>
+    bool is_nan(DEVICE& device, const rl_tools::nn::layers::sample_and_squash::LayerForward<SPEC>& l, const Mode<MODE>& mode = Mode<mode::Default<>>{}) {
+        return false;
+    }
+    template <typename DEVICE, typename SPEC, typename MODE = mode::Default<>>
+    bool is_nan(DEVICE& device, const rl_tools::nn::layers::sample_and_squash::LayerBackward<SPEC>& l, const Mode<MODE>& mode = Mode<mode::Default<>>{}) {
+        bool upstream_nan = is_nan(device, static_cast<const rl_tools::nn::layers::sample_and_squash::LayerForward<SPEC>&>(l), mode);
+        if constexpr(mode::is<MODE, nn::parameters::mode::ParametersOnly>){
+            return upstream_nan;
+        }
+        return upstream_nan || is_nan(device, l.pre_squashing, mode) || is_nan(device, l.noise, mode);
+    }
+    template <typename DEVICE, typename SPEC, typename MODE = mode::Default<>>
+    bool is_nan(DEVICE& device, const rl_tools::nn::layers::sample_and_squash::LayerGradient<SPEC>& l, const Mode<MODE>& mode = Mode<mode::Default<>>{}) {
+        bool upstream_nan = is_nan(device, static_cast<const rl_tools::nn::layers::sample_and_squash::LayerBackward<SPEC>&>(l), mode);
+        upstream_nan =  upstream_nan || is_nan(device, l.log_alpha, mode);
+        if constexpr(mode::is<MODE, nn::parameters::mode::ParametersOnly>){
+            return upstream_nan;
+        }
+        return upstream_nan || is_nan(device, l.log_probabilities, mode) || is_nan(device, l.output, mode);
+    }
+}
+RL_TOOLS_NAMESPACE_WRAPPER_END
 #endif

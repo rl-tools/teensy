@@ -5,7 +5,6 @@
 
 #include "model.h"
 #include "../../utils/generic/typing.h"
-#include "../../nn/mode.h"
 RL_TOOLS_NAMESPACE_WRAPPER_START
 namespace rl_tools{
     template <typename DEVICE, typename MODULE_SPEC>
@@ -15,6 +14,18 @@ namespace rl_tools{
     template <typename DEVICE, typename MODULE_SPEC>
     void free(DEVICE& device, nn_models::multi_agent_wrapper::ModuleForward<MODULE_SPEC>& module){
         free(device, module.content);
+    }
+    template <typename DEVICE, typename STATE_SPEC>
+    void malloc(DEVICE& device, nn_models::multi_agent_wrapper::ModuleState<STATE_SPEC>& state){
+        malloc(device, state.inner_state);
+    }
+    template <typename DEVICE, typename STATE_SPEC>
+    void free(DEVICE& device, nn_models::multi_agent_wrapper::ModuleState<STATE_SPEC>& state){
+        free(device, state.inner_state);
+    }
+    template <typename DEVICE, typename MODULE_SPEC, typename STATE_SPEC, typename RNG, typename MODE = mode::Default<>>
+    void reset(DEVICE& device, const nn_models::multi_agent_wrapper::ModuleForward<MODULE_SPEC>& model, nn_models::multi_agent_wrapper::ModuleState<STATE_SPEC>& state, RNG& rng, const Mode<MODE>& mode = Mode<mode::Default<>>{}){
+        reset(device, model.content, state.inner_state, rng, mode);
     }
     template <typename DEVICE, typename BUFFER_SPEC>
     void malloc(DEVICE& device, nn_models::multi_agent_wrapper::ModuleBuffer<BUFFER_SPEC>& buffer){
@@ -66,42 +77,80 @@ namespace rl_tools{
         return get_last_buffer(buffer.buffer);
     }
 
-    template <typename SPEC> // non-const
-    RL_TOOLS_FUNCTION_PLACEMENT constexpr auto& output(nn_models::multi_agent_wrapper::ModuleGradient<SPEC>& m){
-        return output(m.content);
+    template <typename DEVICE, typename SPEC> // non-const
+    RL_TOOLS_FUNCTION_PLACEMENT constexpr auto output(DEVICE& device, nn_models::multi_agent_wrapper::ModuleGradient<SPEC>& m){
+        auto output_reshaped = reshape_row_major(device, output(device, m.content), typename SPEC::OUTPUT_SHAPE{});
+        return output_reshaped;
     }
-    template <typename SPEC> // const
-    RL_TOOLS_FUNCTION_PLACEMENT constexpr auto& output(const nn_models::multi_agent_wrapper::ModuleGradient<SPEC>& m){
-        return output(m.content);
+    template <typename DEVICE, typename SPEC> // const
+    RL_TOOLS_FUNCTION_PLACEMENT constexpr auto output(DEVICE& device, const nn_models::multi_agent_wrapper::ModuleGradient<SPEC>& m){
+        auto output_reshaped = reshape_row_major(device, output(device, m.content), typename SPEC::OUTPUT_SHAPE{});
+        return output_reshaped;
     }
-    template<typename DEVICE, typename MODULE_SPEC, typename INPUT_SPEC, typename OUTPUT_SPEC, typename BUFFER_SPEC, typename RNG, typename MODE = nn::mode::Default>
-    void evaluate(DEVICE& device, const nn_models::multi_agent_wrapper::ModuleForward<MODULE_SPEC>& model, const Matrix<INPUT_SPEC>& input, Matrix<OUTPUT_SPEC>& output, nn_models::multi_agent_wrapper::ModuleBuffer<BUFFER_SPEC>& buffers, RNG& rng, const nn::Mode<MODE>& mode = nn::Mode<nn::mode::Default>{}){
+    template<typename DEVICE, typename MODULE_SPEC, typename INPUT_SPEC, typename OUTPUT_SPEC, typename BUFFER_SPEC, typename RNG, typename MODE = mode::Default<>>
+    void evaluate(DEVICE& device, const nn_models::multi_agent_wrapper::ModuleForward<MODULE_SPEC>& model, const Tensor<INPUT_SPEC>& input, Tensor<OUTPUT_SPEC>& output, nn_models::multi_agent_wrapper::ModuleBuffer<BUFFER_SPEC>& buffers, RNG& rng, const Mode<MODE>& mode = Mode<mode::Default<>>{}){
         using TI = typename DEVICE::index_t;
-        constexpr TI BATCH_SIZE = INPUT_SPEC::ROWS;
-        copy(device, device, input, buffers.input);
-        auto input_reshaped = reshape<BATCH_SIZE*MODULE_SPEC::N_AGENTS, INPUT_SPEC::COLS/MODULE_SPEC::N_AGENTS>(device, buffers.input);
-        auto output_reshaped = reshape<BATCH_SIZE*MODULE_SPEC::N_AGENTS, OUTPUT_SPEC::COLS/MODULE_SPEC::N_AGENTS>(device, buffers.output);
-        evaluate(device, model.content, input_reshaped, output_reshaped, buffers.buffer, rng, mode);
-        copy(device, device, buffers.output, output);
+        static_assert(INPUT_SPEC::SHAPE::LENGTH == 3);
+        static_assert(OUTPUT_SPEC::SHAPE::LENGTH == 3);
+        constexpr TI INPUT_DIM = INPUT_SPEC::SHAPE::template GET<INPUT_SPEC::SHAPE::LENGTH-1>;
+        constexpr TI OUTPUT_DIM = OUTPUT_SPEC::SHAPE::template GET<OUTPUT_SPEC::SHAPE::LENGTH-1>;
+        static_assert(INPUT_DIM % MODULE_SPEC::N_AGENTS == 0);
+        static_assert(OUTPUT_DIM % MODULE_SPEC::N_AGENTS == 0);
+        constexpr TI BATCH_AXIS = 1;
+        constexpr TI BATCH_SIZE = INPUT_SPEC::SHAPE::template GET<BATCH_AXIS>;
+
+        auto input_buffer_view = view_range(device, buffers.input, tensor::ViewSpec<BATCH_AXIS, BATCH_SIZE>{});
+        auto output_buffer_view = view_range(device, buffers.output, tensor::ViewSpec<BATCH_AXIS, BATCH_SIZE>{});
+        copy(device, device, input, input_buffer_view);// forgot why this? to make it dense for the reshape?
+        auto input_inner = reshape_row_major(device, input_buffer_view, tensor::Shape<TI, BATCH_SIZE*MODULE_SPEC::N_AGENTS, INPUT_DIM/MODULE_SPEC::N_AGENTS>{});
+        auto output_inner = reshape_row_major(device, output_buffer_view, tensor::Shape<TI, BATCH_SIZE*MODULE_SPEC::N_AGENTS, OUTPUT_DIM/MODULE_SPEC::N_AGENTS>{});
+        evaluate(device, model.content, input_inner, output_inner, buffers.buffer, rng, mode);
+        copy(device, device, output_buffer_view, output);
     }
-    template <typename DEVICE, typename MODULE_SPEC, typename INPUT, typename BUFFER_SPEC, typename RNG, typename MODE = nn::mode::Default>
-    void forward(DEVICE& device, nn_models::multi_agent_wrapper::ModuleGradient<MODULE_SPEC>& module, INPUT& input, nn_models::multi_agent_wrapper::ModuleBuffer<BUFFER_SPEC>& buffers, RNG& rng, const nn::Mode<MODE>& mode = nn::Mode<nn::mode::Default>{}){
+    template<typename DEVICE, typename MODULE_SPEC, typename INPUT_SPEC, typename OUTPUT_SPEC, typename STATE_SPEC, typename BUFFER_SPEC, typename RNG, typename MODE = mode::Default<>>
+    void evaluate_step(DEVICE& device, const nn_models::multi_agent_wrapper::ModuleForward<MODULE_SPEC>& model, const Tensor<INPUT_SPEC>& input, nn_models::multi_agent_wrapper::ModuleState<STATE_SPEC>& state, Tensor<OUTPUT_SPEC>& output, nn_models::multi_agent_wrapper::ModuleBuffer<BUFFER_SPEC>& buffers, RNG& rng, const Mode<MODE>& mode = Mode<mode::Default<>>{}){
         using TI = typename DEVICE::index_t;
-        using INPUT_SPEC = typename INPUT::SPEC;
-        constexpr TI BATCH_SIZE = INPUT_SPEC::ROWS;
-        copy(device, device, input, buffers.input);
-        auto input_reshaped = reshape<BATCH_SIZE*MODULE_SPEC::N_AGENTS, INPUT_SPEC::COLS/MODULE_SPEC::N_AGENTS>(device, buffers.input);
-        forward(device, module.content, input_reshaped, buffers.buffer, rng, mode);
+        static_assert(INPUT_SPEC::SHAPE::LENGTH == 2);
+        static_assert(OUTPUT_SPEC::SHAPE::LENGTH == 2);
+        constexpr TI INPUT_DIM = INPUT_SPEC::SHAPE::template GET<INPUT_SPEC::SHAPE::LENGTH-1>;
+        constexpr TI OUTPUT_DIM = OUTPUT_SPEC::SHAPE::template GET<OUTPUT_SPEC::SHAPE::LENGTH-1>;
+        static_assert(INPUT_DIM % MODULE_SPEC::N_AGENTS == 0);
+        static_assert(OUTPUT_DIM % MODULE_SPEC::N_AGENTS == 0);
+        constexpr TI BATCH_AXIS = 0;
+        constexpr TI BATCH_SIZE = INPUT_SPEC::SHAPE::template GET<BATCH_AXIS>;
+        using TI = typename DEVICE::index_t;
+
+        auto input_buffer_step = view(device, buffers.input, 0);
+        auto output_buffer_step = view(device, buffers.output, 0);
+        auto input_buffer_view = view_range(device, input_buffer_step, tensor::ViewSpec<BATCH_AXIS, BATCH_SIZE>{});
+        auto output_buffer_view = view_range(device, output_buffer_step, tensor::ViewSpec<BATCH_AXIS, BATCH_SIZE>{});
+        copy(device, device, input, input_buffer_view);
+        auto input_inner = reshape_row_major(device, input_buffer_view, tensor::Shape<TI, BATCH_SIZE*MODULE_SPEC::N_AGENTS, INPUT_DIM/MODULE_SPEC::N_AGENTS>{});
+        auto output_inner = reshape_row_major(device, output_buffer_view, tensor::Shape<TI, BATCH_SIZE*MODULE_SPEC::N_AGENTS, OUTPUT_DIM/MODULE_SPEC::N_AGENTS>{});
+        evaluate_step(device, model.content, input_inner, state.inner_state, output_inner, buffers.buffer, rng, mode);
+        copy(device, device, output_buffer_view, output);
     }
-    template <typename DEVICE, typename MODULE_SPEC, typename INPUT, typename OUTPUT, typename BUFFER_SPEC, typename RNG, typename MODE = nn::mode::Default>
-    void forward(DEVICE& device, nn_models::multi_agent_wrapper::ModuleGradient<MODULE_SPEC>& module, INPUT& input, OUTPUT& output, nn_models::multi_agent_wrapper::ModuleBuffer<BUFFER_SPEC>& buffers, RNG& rng, const nn::Mode<MODE>& mode = nn::Mode<nn::mode::Default>{}){
+    template <typename DEVICE, typename MODULE_SPEC, typename INPUT_SPEC, typename BUFFER_SPEC, typename RNG, typename MODE = mode::Default<>>
+    void forward(DEVICE& device, nn_models::multi_agent_wrapper::ModuleGradient<MODULE_SPEC>& module, const Tensor<INPUT_SPEC>& input, nn_models::multi_agent_wrapper::ModuleBuffer<BUFFER_SPEC>& buffers, RNG& rng, const Mode<MODE>& mode = Mode<mode::Default<>>{}){
         using TI = typename DEVICE::index_t;
-        using INPUT_SPEC = typename INPUT::SPEC;
-        constexpr TI BATCH_SIZE = INPUT_SPEC::ROWS;
+        static_assert(INPUT_SPEC::SHAPE::LENGTH == 3);
+        constexpr TI INPUT_DIM = INPUT_SPEC::SHAPE::template GET<INPUT_SPEC::SHAPE::LENGTH-1>;
+        static_assert(INPUT_DIM % MODULE_SPEC::N_AGENTS == 0);
+        constexpr TI BATCH_AXIS = 1;
+        constexpr TI BATCH_SIZE = INPUT_SPEC::SHAPE::template GET<BATCH_AXIS>;
+        using TI = typename DEVICE::index_t;
+
+        auto input_buffer_view = view_range(device, buffers.input, tensor::ViewSpec<BATCH_AXIS, BATCH_SIZE>{});
+        auto output_buffer_view = view_range(device, buffers.output, tensor::ViewSpec<BATCH_AXIS, BATCH_SIZE>{});
+        copy(device, device, input, input_buffer_view);
+        auto input_inner = reshape_row_major(device, input_buffer_view, tensor::Shape<TI, BATCH_SIZE*MODULE_SPEC::N_AGENTS, INPUT_DIM/MODULE_SPEC::N_AGENTS>{});
+        forward(device, module.content, input_inner, buffers.buffer, rng, mode);
+    }
+    template <typename DEVICE, typename MODULE_SPEC, typename INPUT, typename OUTPUT, typename BUFFER_SPEC, typename RNG, typename MODE = mode::Default<>>
+    void forward(DEVICE& device, nn_models::multi_agent_wrapper::ModuleGradient<MODULE_SPEC>& module, INPUT& input, OUTPUT& output, nn_models::multi_agent_wrapper::ModuleBuffer<BUFFER_SPEC>& buffers, RNG& rng, const Mode<MODE>& mode = Mode<mode::Default<>>{}){
         forward(device, module, input, buffers, rng, mode);
-        auto module_output = rl_tools::output(module);
-        auto output_reshaped = reshape<BATCH_SIZE, decltype(module_output)::SPEC::COLS*MODULE_SPEC::N_AGENTS>(device, module_output);
-        copy(device, device, output_reshaped, output);
+        auto module_output = rl_tools::output(device, module);
+        copy(device, device, module_output, output);
     }
     template <typename DEVICE, typename MODULE_SPEC>
     void zero_gradient(DEVICE& device, nn_models::multi_agent_wrapper::ModuleGradient<MODULE_SPEC>& module){
@@ -115,35 +164,77 @@ namespace rl_tools{
     void reset_forward_state(DEVICE& device, nn_models::multi_agent_wrapper::ModuleGradient<SPEC>& module) {
         reset_forward_state(device, module.content);
     }
-    template<typename DEVICE, typename MODULE_SPEC, typename INPUT_SPEC, typename D_OUTPUT_SPEC, typename D_INPUT_SPEC, typename BUFFER_SPEC, typename MODE = nn::mode::Default>
-    void backward_full(DEVICE& device, nn_models::multi_agent_wrapper::ModuleGradient<MODULE_SPEC>& model, const Matrix<INPUT_SPEC>& input, Matrix<D_OUTPUT_SPEC>& d_output, Matrix<D_INPUT_SPEC>& d_input, nn_models::multi_agent_wrapper::ModuleBuffer<BUFFER_SPEC> buffers, const nn::Mode<MODE>& mode = nn::Mode<nn::mode::Default>{}) {
+    template<typename DEVICE, typename MODULE_SPEC, typename INPUT_SPEC, typename D_OUTPUT_SPEC, typename D_INPUT_SPEC, typename BUFFER_SPEC, typename MODE = mode::Default<>>
+    void backward_full(DEVICE& device, nn_models::multi_agent_wrapper::ModuleGradient<MODULE_SPEC>& model, const Tensor<INPUT_SPEC>& input, Tensor<D_OUTPUT_SPEC>& d_output, Tensor<D_INPUT_SPEC>& d_input, nn_models::multi_agent_wrapper::ModuleBuffer<BUFFER_SPEC> buffers, const Mode<MODE>& mode = Mode<mode::Default<>>{}) {
         using TI = typename DEVICE::index_t;
-        constexpr TI BATCH_SIZE = INPUT_SPEC::ROWS;
-        copy(device, device, input, buffers.input);
-        copy(device, device, d_output, buffers.output);
-        auto input_reshaped = reshape<BATCH_SIZE*MODULE_SPEC::N_AGENTS, INPUT_SPEC::COLS/MODULE_SPEC::N_AGENTS>(device, buffers.input);
-        auto d_output_reshaped = reshape<BATCH_SIZE*MODULE_SPEC::N_AGENTS, D_OUTPUT_SPEC::COLS/MODULE_SPEC::N_AGENTS>(device, buffers.output);
-        backward_full(device, model.content, input_reshaped, d_output_reshaped, buffers.d_inpu, buffers.buffer, mode);
-        copy(device, device, buffers.d_input, d_input);
+        static_assert(INPUT_SPEC::SHAPE::LENGTH == 3);
+        static_assert(D_INPUT_SPEC::SHAPE::LENGTH == 3);
+        static_assert(D_OUTPUT_SPEC::SHAPE::LENGTH == 3);
+        constexpr TI INPUT_DIM = INPUT_SPEC::SHAPE::template GET<INPUT_SPEC::SHAPE::LENGTH-1>;
+        static_assert(INPUT_DIM == D_INPUT_SPEC::SHAPE::template GET<D_INPUT_SPEC::SHAPE::LENGTH-1>);
+        constexpr TI OUTPUT_DIM = D_OUTPUT_SPEC::SHAPE::template GET<D_OUTPUT_SPEC::SHAPE::LENGTH-1>;
+        static_assert(INPUT_DIM % MODULE_SPEC::N_AGENTS == 0);
+        static_assert(OUTPUT_DIM % MODULE_SPEC::N_AGENTS == 0);
+        constexpr TI BATCH_AXIS = 1;
+        constexpr TI BATCH_SIZE = INPUT_SPEC::SHAPE::template GET<BATCH_AXIS>;
+        static_assert(BATCH_SIZE == D_INPUT_SPEC::SHAPE::template GET<BATCH_AXIS>);
+        static_assert(BATCH_SIZE == D_OUTPUT_SPEC::SHAPE::template GET<BATCH_AXIS>);
+        using TI = typename DEVICE::index_t;
+
+        auto input_buffer_view = view_range(device, buffers.input, tensor::ViewSpec<BATCH_AXIS, BATCH_SIZE>{});
+        auto d_input_buffer_view = view_range(device, buffers.d_input, tensor::ViewSpec<BATCH_AXIS, BATCH_SIZE>{});
+        auto d_output_buffer_view = view_range(device, buffers.output, tensor::ViewSpec<BATCH_AXIS, BATCH_SIZE>{});
+        copy(device, device, input, input_buffer_view);
+        copy(device, device, d_output, d_output_buffer_view);
+        auto input_inner = reshape_row_major(device, input_buffer_view, tensor::Shape<TI, BATCH_SIZE*MODULE_SPEC::N_AGENTS, INPUT_DIM/MODULE_SPEC::N_AGENTS>{});
+        auto d_input_inner = reshape_row_major(device, d_input_buffer_view, tensor::Shape<TI, BATCH_SIZE*MODULE_SPEC::N_AGENTS, INPUT_DIM/MODULE_SPEC::N_AGENTS>{});
+        auto d_output_inner = reshape_row_major(device, d_output_buffer_view, tensor::Shape<TI, BATCH_SIZE*MODULE_SPEC::N_AGENTS, OUTPUT_DIM/MODULE_SPEC::N_AGENTS>{});
+        backward_full(device, model.content, input_inner, d_output_inner, d_input_inner, buffers.buffer, mode);
+        copy(device, device, d_input_buffer_view, d_input);
     }
-    template<typename DEVICE, typename MODULE_SPEC, typename D_OUTPUT_SPEC, typename D_INPUT_SPEC, typename BUFFER_SPEC, typename MODE = nn::mode::Default>
-    void backward_input(DEVICE& device, nn_models::multi_agent_wrapper::ModuleBackward<MODULE_SPEC>& model, Matrix<D_OUTPUT_SPEC>& d_output, Matrix<D_INPUT_SPEC>& d_input, nn_models::multi_agent_wrapper::ModuleBuffer<BUFFER_SPEC> buffers, const nn::Mode<MODE>& mode = nn::Mode<nn::mode::Default>{}){
+    template<typename DEVICE, typename MODULE_SPEC, typename D_OUTPUT_SPEC, typename D_INPUT_SPEC, typename BUFFER_SPEC, typename MODE = mode::Default<>>
+    void backward_input(DEVICE& device, nn_models::multi_agent_wrapper::ModuleBackward<MODULE_SPEC>& model, Tensor<D_OUTPUT_SPEC>& d_output, Tensor<D_INPUT_SPEC>& d_input, nn_models::multi_agent_wrapper::ModuleBuffer<BUFFER_SPEC> buffers, const Mode<MODE>& mode = Mode<mode::Default<>>{}){
         using TI = typename DEVICE::index_t;
-        constexpr TI BATCH_SIZE = D_INPUT_SPEC::ROWS;
-        copy(device, device, d_output, buffers.output);
-        auto d_output_reshaped = reshape<BATCH_SIZE*MODULE_SPEC::N_AGENTS, D_OUTPUT_SPEC::COLS/MODULE_SPEC::N_AGENTS>(device, buffers.output);
-        backward_input(device, model.content, d_output_reshaped, buffers.d_input, buffers.buffer, mode);
-        copy(device, device, buffers.d_input, d_input);
+        static_assert(D_INPUT_SPEC::SHAPE::LENGTH == 3);
+        static_assert(D_OUTPUT_SPEC::SHAPE::LENGTH == 3);
+        constexpr TI INPUT_DIM = D_INPUT_SPEC::SHAPE::template GET<D_INPUT_SPEC::SHAPE::LENGTH-1>;
+        constexpr TI OUTPUT_DIM = D_OUTPUT_SPEC::SHAPE::template GET<D_OUTPUT_SPEC::SHAPE::LENGTH-1>;
+        static_assert(INPUT_DIM % MODULE_SPEC::N_AGENTS == 0);
+        static_assert(OUTPUT_DIM % MODULE_SPEC::N_AGENTS == 0);
+        constexpr TI BATCH_AXIS = 1;
+        constexpr TI BATCH_SIZE = D_INPUT_SPEC::SHAPE::template GET<BATCH_AXIS>;
+        static_assert(BATCH_SIZE == D_OUTPUT_SPEC::SHAPE::template GET<BATCH_AXIS>);
+        using TI = typename DEVICE::index_t;
+
+        auto d_input_buffer_view = view_range(device, buffers.d_input, tensor::ViewSpec<BATCH_AXIS, BATCH_SIZE>{});
+        auto d_output_buffer_view = view_range(device, buffers.output, tensor::ViewSpec<BATCH_AXIS, BATCH_SIZE>{});
+        copy(device, device, d_output, d_output_buffer_view);
+        auto d_input_inner = reshape_row_major(device, d_input_buffer_view, tensor::Shape<TI, BATCH_SIZE*MODULE_SPEC::N_AGENTS, INPUT_DIM/MODULE_SPEC::N_AGENTS>{});
+        auto d_output_inner = reshape_row_major(device, d_output_buffer_view, tensor::Shape<TI, BATCH_SIZE*MODULE_SPEC::N_AGENTS, OUTPUT_DIM/MODULE_SPEC::N_AGENTS>{});
+        backward_input(device, model.content, d_output_inner, d_input_inner, buffers.buffer, mode);
+        copy(device, device, d_input_buffer_view, d_input);
     }
-    template<typename DEVICE, typename MODULE_SPEC, typename INPUT_SPEC, typename D_OUTPUT_SPEC, typename BUFFER_SPEC, typename MODE = nn::mode::Default>
-    void backward(DEVICE& device, nn_models::multi_agent_wrapper::ModuleGradient<MODULE_SPEC>& model, const Matrix<INPUT_SPEC>& input, Matrix<D_OUTPUT_SPEC>& d_output, nn_models::multi_agent_wrapper::ModuleBuffer<BUFFER_SPEC> buffers, const nn::Mode<MODE>& mode = nn::Mode<nn::mode::Default>{}) {
+    template<typename DEVICE, typename MODULE_SPEC, typename INPUT_SPEC, typename D_OUTPUT_SPEC, typename BUFFER_SPEC, typename MODE = mode::Default<>>
+    void backward(DEVICE& device, nn_models::multi_agent_wrapper::ModuleGradient<MODULE_SPEC>& model, const Tensor<INPUT_SPEC>& input, Tensor<D_OUTPUT_SPEC>& d_output, nn_models::multi_agent_wrapper::ModuleBuffer<BUFFER_SPEC> buffers, const Mode<MODE>& mode = Mode<mode::Default<>>{}) {
         using TI = typename DEVICE::index_t;
-        constexpr TI BATCH_SIZE = INPUT_SPEC::ROWS;
-        copy(device, device, input, buffers.input);
-        copy(device, device, d_output, buffers.output);
-        auto input_reshaped = reshape<BATCH_SIZE*MODULE_SPEC::N_AGENTS, INPUT_SPEC::COLS/MODULE_SPEC::N_AGENTS>(device, buffers.input);
-        auto d_output_reshaped = reshape<BATCH_SIZE*MODULE_SPEC::N_AGENTS, D_OUTPUT_SPEC::COLS/MODULE_SPEC::N_AGENTS>(device, buffers.output);
-        backward(device, model.content, input_reshaped, d_output_reshaped, buffers.buffer, mode);
+        static_assert(INPUT_SPEC::SHAPE::LENGTH == 3);
+        static_assert(D_OUTPUT_SPEC::SHAPE::LENGTH == 3);
+        constexpr TI INPUT_DIM = INPUT_SPEC::SHAPE::template GET<INPUT_SPEC::SHAPE::LENGTH-1>;
+        constexpr TI OUTPUT_DIM = D_OUTPUT_SPEC::SHAPE::template GET<D_OUTPUT_SPEC::SHAPE::LENGTH-1>;
+        static_assert(INPUT_DIM % MODULE_SPEC::N_AGENTS == 0);
+        static_assert(OUTPUT_DIM % MODULE_SPEC::N_AGENTS == 0);
+        constexpr TI BATCH_AXIS = 1;
+        constexpr TI BATCH_SIZE = INPUT_SPEC::SHAPE::template GET<BATCH_AXIS>;
+        static_assert(BATCH_SIZE == D_OUTPUT_SPEC::SHAPE::template GET<BATCH_AXIS>);
+        using TI = typename DEVICE::index_t;
+
+        auto input_buffer_view = view_range(device, buffers.input, tensor::ViewSpec<BATCH_AXIS, BATCH_SIZE>{});
+        auto d_output_buffer_view = view_range(device, buffers.output, tensor::ViewSpec<BATCH_AXIS, BATCH_SIZE>{});
+        copy(device, device, input, input_buffer_view);
+        copy(device, device, d_output, d_output_buffer_view);
+        auto input_inner = reshape_row_major(device, input_buffer_view, tensor::Shape<TI, BATCH_SIZE*MODULE_SPEC::N_AGENTS, INPUT_DIM/MODULE_SPEC::N_AGENTS>{});
+        auto d_output_inner = reshape_row_major(device, d_output_buffer_view, tensor::Shape<TI, BATCH_SIZE*MODULE_SPEC::N_AGENTS, OUTPUT_DIM/MODULE_SPEC::N_AGENTS>{});
+        backward(device, model.content, input_inner, d_output_inner, buffers.buffer, mode);
     }
     template<typename DEVICE, typename SPEC, typename OPTIMIZER>
     void update(DEVICE& device, nn_models::multi_agent_wrapper::ModuleGradient<SPEC>& model, OPTIMIZER& optimizer) {

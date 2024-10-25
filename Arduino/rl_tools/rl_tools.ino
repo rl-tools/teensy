@@ -23,7 +23,6 @@ EXTMEM: off_policy_runner/replay_buffer
 constexpr bool DYNAMIC_ALLOCATION_ACTOR = false;
 constexpr bool DYNAMIC_ALLOCATION_CRITIC = true;
 constexpr bool DYNAMIC_ALLOCATION_LOOP_STATE = false;
-constexpr bool DYNAMIC_ALLOCATION_ACTOR_CRITIC_BUFFERS = false;
 
 
 // #define BENCHMARK

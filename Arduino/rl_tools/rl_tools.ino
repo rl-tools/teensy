@@ -28,7 +28,7 @@ constexpr bool DYNAMIC_ALLOCATION_ACTOR_CRITIC_BUFFERS = false;
 
 // #define BENCHMARK
 // #define RL_TOOLS_DISABLE_EVALUATION
-// tested with: https://github.com/rl-tools/rl-tools/blob/e37fa17e43057e7611202e6263e0a1460dcf55a6/src/rl/environments/pendulum/sac/arm/training.h
+// tested with: https://github.com/rl-tools/rl-tools/blob/97e000892aa2176bc611cd36efde7b8e6af6838c/src/rl/environments/pendulum/sac/arm/training.h
 // Copy this file somewhere on your PC and include it in the following:
 #include <C://Users/Jonas/rl-tools-internal/src/rl/environments/pendulum/sac/arm/training.h>
 

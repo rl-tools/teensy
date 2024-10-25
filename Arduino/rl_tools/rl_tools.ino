@@ -27,7 +27,7 @@ constexpr bool DYNAMIC_ALLOCATION_LOOP_STATE = false;
 
 // #define BENCHMARK
 // #define RL_TOOLS_DISABLE_EVALUATION
-// tested with: https://github.com/rl-tools/rl-tools/blob/97e000892aa2176bc611cd36efde7b8e6af6838c/src/rl/environments/pendulum/sac/arm/training.h
+// tested with: https://github.com/rl-tools/rl-tools/blob/86d67db66f2f2a6d69ada14717fa00ea8c112c3c/src/rl/environments/pendulum/sac/arm/training.h
 // Copy this file somewhere on your PC and include it in the following:
 #include <C://Users/Jonas/rl-tools-internal/src/rl/environments/pendulum/sac/arm/training.h>
 

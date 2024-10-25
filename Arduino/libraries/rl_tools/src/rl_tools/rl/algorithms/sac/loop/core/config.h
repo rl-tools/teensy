@@ -98,7 +98,7 @@ namespace rl_tools::rl::algorithms::sac::loop::core{
         using CRITIC_TARGET_TYPE = typename Critic<nn::capability::Forward<>>::MODEL;
     };
 
-    template<typename T_T, typename T_TI, typename T_RNG, typename T_ENVIRONMENT, typename T_PARAMETERS = DefaultParameters<T_T, T_TI, T_ENVIRONMENT>, template<typename, typename, typename, typename> class APPROXIMATOR_CONFIG=ConfigApproximatorsSequential, bool T_DYNAMIC_ALLOCATION=true>
+    template<typename T_T, typename T_TI, typename T_RNG, typename T_ENVIRONMENT, typename T_PARAMETERS = DefaultParameters<T_T, T_TI, T_ENVIRONMENT>, template<typename, typename, typename, typename> class APPROXIMATOR_CONFIG=ConfigApproximatorsSequential, bool T_DYNAMIC_ALLOCATION=true, bool T_DYNAMIC_ALLOCATION_NN_BUFFERS = T_DYNAMIC_ALLOCATION>
     struct Config{
         using T = T_T;
         using TI = T_TI;
@@ -107,6 +107,7 @@ namespace rl_tools::rl::algorithms::sac::loop::core{
         using ENVIRONMENT_EVALUATION = T_ENVIRONMENT;
         using CORE_PARAMETERS = T_PARAMETERS;
         static constexpr bool DYNAMIC_ALLOCATION = T_DYNAMIC_ALLOCATION;
+        static constexpr bool DYNAMIC_ALLOCATION_ACTOR_CRITIC_BUFFERS = T_DYNAMIC_ALLOCATION_NN_BUFFERS;
 #ifndef RL_TOOLS_EXPERIMENTAL
         static_assert(CORE_PARAMETERS::SAC_PARAMETERS::SEQUENCE_LENGTH == 1);
 #endif
@@ -135,7 +136,7 @@ namespace rl_tools::rl::algorithms::sac::loop::core{
         };
         using POLICIES = rl_tools::utils::Tuple<TI, EXPLORATION_POLICY, typename NN::ACTOR_TYPE>;
 
-        using OFF_POLICY_RUNNER_SPEC = rl::components::off_policy_runner::Specification<T, TI, ENVIRONMENT, POLICIES, OFF_POLICY_RUNNER_PARAMETERS>;
+        using OFF_POLICY_RUNNER_SPEC = rl::components::off_policy_runner::Specification<T, TI, ENVIRONMENT, POLICIES, OFF_POLICY_RUNNER_PARAMETERS, DYNAMIC_ALLOCATION>;
         static_assert(ACTOR_CRITIC_TYPE::SPEC::PARAMETERS::ACTOR_BATCH_SIZE == ACTOR_CRITIC_TYPE::SPEC::PARAMETERS::CRITIC_BATCH_SIZE);
         template <typename CONFIG>
         using State = State<CONFIG>;

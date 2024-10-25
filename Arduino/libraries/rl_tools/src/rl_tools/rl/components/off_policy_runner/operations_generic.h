@@ -24,8 +24,8 @@ namespace rl_tools{
             malloc(device, buffers.next_observations_privileged);
         }
         else{
-            buffers.observations_privileged = buffers.observations;
-            buffers.next_observations_privileged = buffers.next_observations;
+            buffers.observations_privileged = view(device, buffers.observations);
+            buffers.next_observations_privileged = view(device, buffers.next_observations);
         }
     }
     template <typename DEVICE, typename SPEC>
@@ -273,7 +273,7 @@ namespace rl_tools{
         }
     }
     template <typename DEVICE, typename SPEC, typename BATCH_SPEC, typename RNG, bool DETERMINISTIC = false>
-    void gather_batch(DEVICE& device, const rl::components::ReplayBuffer<SPEC>& replay_buffer, rl::components::off_policy_runner::SequentialBatch<BATCH_SPEC>& batch, typename DEVICE::index_t batch_step_i, RNG& rng) {
+    void gather_batch(DEVICE& device, rl::components::ReplayBuffer<SPEC>& replay_buffer, rl::components::off_policy_runner::SequentialBatch<BATCH_SPEC>& batch, typename DEVICE::index_t batch_step_i, RNG& rng) {
         // note: make sure that the replay_buffer has at least one transition in it;
         using TI = typename DEVICE::index_t;
         using T = typename SPEC::T;
@@ -289,7 +289,9 @@ namespace rl_tools{
                 current_seq_length = SEQUENCE_LENGTH;
             }
             else{
-                current_seq_length = random::uniform_int_distribution(device.random, (TI) 1, SEQUENCE_LENGTH-1, rng);
+                if constexpr(SEQUENCE_LENGTH > 1) {
+                    current_seq_length = random::uniform_int_distribution(device.random, (TI) 1, SEQUENCE_LENGTH-1, rng);
+                }
             }
         }
         TI current_seq_step = 0;
@@ -368,7 +370,12 @@ namespace rl_tools{
             previous_step_truncated = truncated || sample_index == 0;
             if constexpr(RANDOM_SEQ_LENGTH) {
                 if (current_seq_step == current_seq_length - 1) {
-                    current_seq_length = random::uniform_int_distribution(device.random, (TI) 1, SEQUENCE_LENGTH-1, rng);
+                    if(SEQUENCE_LENGTH > 1){
+                        current_seq_length = random::uniform_int_distribution(device.random, (TI) 1, SEQUENCE_LENGTH-1, rng);
+                    }
+                    else{
+                        current_seq_length = SEQUENCE_LENGTH;
+                    }
                     current_seq_step = 0;
                     previous_step_truncated = true;
                 }
@@ -379,7 +386,7 @@ namespace rl_tools{
         }
     }
     template <typename DEVICE, typename SPEC, typename BATCH_SPEC, typename RNG, bool DETERMINISTIC=false>
-    void gather_batch(DEVICE& device, const rl::components::OffPolicyRunner<SPEC>& runner, rl::components::off_policy_runner::SequentialBatch<BATCH_SPEC>& batch, RNG& rng) {
+    void gather_batch(DEVICE& device, rl::components::OffPolicyRunner<SPEC>& runner, rl::components::off_policy_runner::SequentialBatch<BATCH_SPEC>& batch, RNG& rng) {
         static_assert(utils::typing::is_same_v<SPEC, typename BATCH_SPEC::SPEC>);
         using T = typename SPEC::T;
         using TI = typename SPEC::TI;

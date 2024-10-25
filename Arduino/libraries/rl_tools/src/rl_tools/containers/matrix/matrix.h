@@ -59,18 +59,18 @@ namespace rl_tools{
         struct MatrixStatic{
             T _data[SIZE];
         };
-        template <typename T, bool CONST = false>
+        template <typename T, typename TI, TI SIZE_BYTES, bool CONST = false>
         struct MatrixDynamic{
             T* _data = nullptr;
         };
-        template <typename T>
-        struct MatrixDynamic<T, true>{
+        template <typename T, typename TI, TI SIZE_BYTES>
+        struct MatrixDynamic<T, TI, SIZE_BYTES, true>{
             const T* _data;
         };
     }
 
     template <typename T_SPEC>
-    struct Matrix: utils::typing::conditional_t<T_SPEC::DYNAMIC_ALLOCATION, matrix::MatrixDynamic<typename T_SPEC::T, T_SPEC::CONST>, matrix::MatrixStatic<typename T_SPEC::T, typename T_SPEC::TI, T_SPEC::SIZE>>{
+    struct Matrix: utils::typing::conditional_t<T_SPEC::DYNAMIC_ALLOCATION, matrix::MatrixDynamic<typename T_SPEC::T, typename T_SPEC::TI, T_SPEC::SIZE_BYTES, T_SPEC::CONST>, matrix::MatrixStatic<typename T_SPEC::T, typename T_SPEC::TI, T_SPEC::SIZE>>{
         using SPEC = T_SPEC;
         using T = typename SPEC::T;
         using TI = typename SPEC::TI;
@@ -81,7 +81,7 @@ namespace rl_tools{
 
         using VIEW_LAYOUT = matrix::layouts::Fixed<typename SPEC::TI, SPEC::ROW_PITCH, SPEC::COL_PITCH>;
 
-        template<typename SPEC::TI ROWS, typename SPEC::TI COLS>
+        template<typename SPEC::TI ROWS = SPEC::ROWS, typename SPEC::TI COLS = SPEC::COLS>
         using VIEW = Matrix<matrix::Specification<T, TI, ROWS, COLS, true, VIEW_LAYOUT>>;
 //        virtual void _abstract_tag(){};
 //        // pure virtual function to make this class abstract (should be instantiated by either the MatrixStatic or MatrixDynamic subclasses class)

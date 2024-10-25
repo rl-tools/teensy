@@ -19,11 +19,18 @@ EXTMEM: off_policy_runner/replay_buffer
 #undef ARDUINO
 #include <rl_tools.h>
 #define RL_TOOLS_DEPLOYMENT_ARDUINO
+
+constexpr bool DYNAMIC_ALLOCATION_ACTOR = false;
+constexpr bool DYNAMIC_ALLOCATION_CRITIC = true;
+constexpr bool DYNAMIC_ALLOCATION_LOOP_STATE = false;
+constexpr bool DYNAMIC_ALLOCATION_ACTOR_CRITIC_BUFFERS = false;
+
+
 // #define BENCHMARK
 // #define RL_TOOLS_DISABLE_EVALUATION
 // tested with: https://github.com/rl-tools/rl-tools/blob/e37fa17e43057e7611202e6263e0a1460dcf55a6/src/rl/environments/pendulum/sac/arm/training.h
 // Copy this file somewhere on your PC and include it in the following:
-#include </home/jonas/rl_tools/src/rl/environments/pendulum/sac/arm/training.h>
+#include <C://Users/Jonas/rl-tools-internal/src/rl/environments/pendulum/sac/arm/training.h>
 
 using CONFIG = LOOP_CORE_CONFIG;
 
